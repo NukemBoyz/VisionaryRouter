@@ -1,0 +1,434 @@
+/*
+   Visionary Router UI.
+
+   Built for a rack room and a wall tablet: large touch targets, high contrast, and state
+   that reads at a glance from a few feet away. Dark by default because that is where this
+   kind of tool usually lives.
+*/
+
+:root {
+    --bg: #0f1216;
+    --panel: #171b21;
+    --panel-raised: #1e232b;
+    --border: #2a313b;
+    --text: #e6eaef;
+    --text-dim: #9aa5b1;
+    --accent: #3b9dff;
+    --accent-dim: #1d4e80;
+    --ok: #35c46a;
+    --warn: #e8b13a;
+    --fail: #f2545b;
+    --offline: #6b7684;
+    --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* --- top bar ------------------------------------------------------------- */
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 0 20px;
+    height: 60px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+
+.brand-mark {
+    width: 12px;
+    height: 22px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, var(--accent), var(--accent-dim));
+}
+
+.brand h1 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.2px;
+}
+
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+
+.tab {
+    background: none;
+    border: 0;
+    color: var(--text-dim);
+    font: inherit;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+
+.tab:hover { color: var(--text); background: var(--panel-raised); }
+.tab.is-active { color: var(--text); background: var(--panel-raised); }
+
+.connection {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-left: 16px;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.connection .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--offline);
+}
+
+.connection.is-live .dot { background: var(--ok); }
+.connection.is-lost .dot { background: var(--fail); }
+
+/* --- layout -------------------------------------------------------------- */
+
+main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+.view { display: none; }
+.view.is-active { display: block; }
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-head h2 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-dim);
+}
+
+.panel-actions { margin-left: auto; display: flex; gap: 6px; }
+.hint { margin-left: auto; color: var(--text-dim); font-size: 13px; }
+
+/* --- routing ------------------------------------------------------------- */
+
+.routing-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 860px) {
+    .routing-grid { grid-template-columns: 1fr; }
+}
+
+.list { padding: 12px; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+
+.empty {
+    color: var(--text-dim);
+    padding: 24px 8px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 16px;
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.card:hover { border-color: #3a434f; }
+
+.card.is-selected {
+    border-color: var(--accent);
+    background: #16283c;
+}
+
+.card.is-offline { opacity: 0.55; }
+
+.card-body { flex: 1; min-width: 0; }
+
+.card-name {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-sub {
+    font-size: 13px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-sub .source-name { color: var(--text); }
+
+.state-dot {
+    /* inline-block matters: inside the flex cards this would size either way, but in the
+       device tables the dot is inline content and would collapse to nothing. */
+    display: inline-block;
+    vertical-align: middle;
+    width: 10px;
+    height: 10px;
+    margin-right: 2px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    background: var(--offline);
+}
+
+.state-Online { background: var(--ok); }
+.state-Offline { background: var(--fail); }
+.state-Unknown { background: var(--offline); }
+
+.check {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    font-size: 14px;
+    color: transparent;
+}
+
+.card.is-selected .check {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
+
+.route-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+}
+
+.route-summary { color: var(--text-dim); flex: 1; }
+.route-summary strong { color: var(--text); }
+
+/* --- buttons ------------------------------------------------------------- */
+
+.btn {
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font: inherit;
+    font-weight: 500;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn:hover:not(:disabled) { border-color: #3a434f; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #04101d; font-weight: 600; }
+.btn-primary:hover:not(:disabled) { background: #56aaff; }
+
+/* A dimmed blue still reads as "press me" from across a room. A disabled action button
+   should look inert, not merely faded. */
+.btn-primary:disabled {
+    background: var(--panel-raised);
+    border-color: var(--border);
+    color: var(--text-dim);
+    opacity: 1;
+}
+
+.btn-large { padding: 14px 32px; font-size: 16px; }
+
+.btn-quiet { background: none; color: var(--text-dim); padding: 6px 12px; }
+.btn-quiet:hover { color: var(--text); }
+
+.btn-danger:hover { border-color: var(--fail); color: var(--fail); }
+
+/* --- route results ------------------------------------------------------- */
+
+.results {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    margin-bottom: 20px;
+}
+
+.results h3 { margin: 0 0 12px; font-size: 14px; }
+
+.result-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.result-row:last-child { border-bottom: 0; }
+.result-name { flex: 1; font-weight: 500; }
+.result-detail { color: var(--text-dim); font-size: 13px; }
+
+.badge {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    text-transform: uppercase;
+}
+
+.badge-Verified { background: rgba(53, 196, 106, 0.15); color: var(--ok); }
+.badge-Failed { background: rgba(242, 84, 91, 0.15); color: var(--fail); }
+.badge-Offline { background: rgba(107, 118, 132, 0.2); color: var(--offline); }
+
+.warning {
+    background: rgba(232, 177, 58, 0.12);
+    border: 1px solid rgba(232, 177, 58, 0.35);
+    color: var(--warn);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    font-size: 14px;
+}
+
+/* --- devices ------------------------------------------------------------- */
+
+.add-form {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 0.7fr auto;
+    gap: 14px;
+    align-items: end;
+    padding: 18px;
+}
+
+@media (max-width: 900px) {
+    .add-form { grid-template-columns: 1fr 1fr; }
+}
+
+.add-form label { display: flex; flex-direction: column; gap: 6px; }
+.add-form span { font-size: 13px; color: var(--text-dim); }
+
+input, select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font: inherit;
+    padding: 9px 11px;
+    border-radius: 8px;
+}
+
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+.form-note {
+    margin: 0;
+    padding: 0 18px 18px;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.table-scroll { overflow-x: auto; }
+
+table.devices { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+table.devices th {
+    text-align: left;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    font-weight: 600;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+table.devices td {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+table.devices tr:last-child td { border-bottom: 0; }
+
+.cell-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+
+.mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+
+.device-error { color: var(--fail); font-size: 12.5px; }
+
+.name-input {
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 5px 8px;
+    width: 100%;
+    min-width: 140px;
+    font-weight: 600;
+}
+
+.name-input:hover { border-color: var(--border); }
+
+/* --- diagnostics --------------------------------------------------------- */
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px 24px;
+    padding: 18px;
+    margin: 0;
+}
+
+.status-grid div { min-width: 0; }
+.status-grid dt { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
+.status-grid dd { margin: 3px 0 0; word-break: break-all; }
+
+.log {
+    padding: 14px 18px;
+    max-height: 380px;
+    overflow-y: auto;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+}
+
+.log-line { display: flex; gap: 12px; }
+.log-time { color: var(--offline); flex: 0 0 auto; }
+.log-ok { color: var(--ok); }
+.log-warn { color: var(--warn); }
+.log-fail { color: var(--fail); }

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Visionary Router</title>
+    <link rel="stylesheet" href="style.css?v=4">
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark"></span>
+            <h1>Visionary Router</h1>
+        </div>
+        <nav class="tabs">
+            <button class="tab is-active" data-view="routing">Routing</button>
+            <button class="tab" data-view="devices">Devices</button>
+            <button class="tab" data-view="diagnostics">Diagnostics</button>
+        </nav>
+        <div class="connection" id="connection">
+            <span class="dot"></span><span class="connection-label">connecting</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- ------------------------------------------------------------------ -->
+        <section class="view is-active" id="view-routing">
+            <div class="routing-grid">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>Sources</h2>
+                        <span class="hint">Pick one</span>
+                    </div>
+                    <div class="list" id="sources"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>Destinations</h2>
+                        <div class="panel-actions">
+                            <button class="btn btn-quiet" id="select-all">All</button>
+                            <button class="btn btn-quiet" id="select-none">None</button>
+                        </div>
+                    </div>
+                    <div class="list" id="destinations"></div>
+                </div>
+            </div>
+
+            <div class="route-bar">
+                <div class="route-summary" id="route-summary">Select a source and one or more destinations.</div>
+                <button class="btn btn-primary btn-large" id="route-btn" disabled>Route</button>
+            </div>
+
+            <div class="results" id="route-results" hidden></div>
+        </section>
+
+        <!-- ------------------------------------------------------------------ -->
+        <section class="view" id="view-devices">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Add a device</h2>
+                </div>
+                <form class="add-form" id="add-form">
+                    <label>
+                        <span>Name</span>
+                        <input type="text" id="add-name" placeholder="Lectern PC" autocomplete="off">
+                    </label>
+                    <label>
+                        <span>IP address</span>
+                        <input type="text" id="add-ip" placeholder="10.10.1.21" autocomplete="off" required>
+                    </label>
+                    <label>
+                        <span>Type</span>
+                        <select id="add-type">
+                            <option value="">Detect from model</option>
+                            <option value="encoder">Encoder</option>
+                            <option value="decoder">Decoder</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Control port</span>
+                        <input type="number" id="add-port" value="8000" min="1" max="65535">
+                    </label>
+                    <button class="btn btn-primary" type="submit">Add &amp; probe</button>
+                </form>
+                <p class="form-note">
+                    Visionary endpoints use UDP 8000 &mdash; leave the port alone unless you have a
+                    reason not to. Leaving the type on <em>Detect from model</em> reads it back from
+                    the endpoint; a device that does not answer cannot be detected and will need its
+                    type set by hand.
+                </p>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Encoders</h2>
+                </div>
+                <div class="table-scroll">
+                    <table class="devices" id="encoder-table"></table>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Decoders</h2>
+                </div>
+                <div class="table-scroll">
+                    <table class="devices" id="decoder-table"></table>
+                </div>
+            </div>
+
+            <div class="panel" id="unclassified-panel" hidden>
+                <div class="panel-head">
+                    <h2>Unclassified</h2>
+                    <span class="hint">Model did not identify these &mdash; set the type by hand</span>
+                </div>
+                <div class="table-scroll">
+                    <table class="devices" id="unknown-table"></table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ------------------------------------------------------------------ -->
+        <section class="view" id="view-diagnostics">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>System</h2>
+                    <button class="btn btn-quiet" id="refresh-status">Refresh</button>
+                </div>
+                <dl class="status-grid" id="status-grid"></dl>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Activity</h2>
+                    <button class="btn btn-quiet" id="clear-log">Clear</button>
+                </div>
+                <div class="log" id="log"></div>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js?v=4"></script>
+</body>
+</html>
