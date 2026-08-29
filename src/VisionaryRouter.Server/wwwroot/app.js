@@ -160,17 +160,15 @@ function renderDestinationCard(device) {
         current = h('span', { text: 'No source reported' });
     }
 
-    // A destination shows two things, and they answer different questions.
+    // Both marks on a destination - the bar down the edge and the tick box - show the source
+    // the decoder reports it is following. Nothing here reacts to which source is selected.
     //
-    // The bar down the edge is what is on that display right now, read back from the decoder.
-    // Striped when it reports nothing, because flat grey reads as a colour that failed to
-    // apply rather than as a display showing nothing.
+    // Selecting a source must not recolour a destination, because selecting changes nothing
+    // on the wall. If a display's colour moves, a display's picture moved; that is the only
+    // promise this screen makes, and a preview of a route not yet sent would break it.
     //
-    // The tick box is the source being routed - it takes the colour of the selected encoder,
-    // so a ticked destination says which feed it is about to receive. The two differ exactly
-    // while a route is pending, which is the moment that difference is worth seeing.
-    const pending = state.selectedSource ? byId(state.selectedSource) : null;
-
+    // The bar is striped when the decoder reports no source, because flat grey reads as a
+    // colour that failed to apply rather than as a display showing nothing.
     const hasSource = device.currentSourceColorIndex !== null
         && device.currentSourceColorIndex !== undefined;
 
@@ -179,14 +177,9 @@ function renderDestinationCard(device) {
     if (device.onlineState === 'Offline') classes.push('is-offline');
     if (!hasSource) classes.push('has-no-source');
 
-    const style = [
-        `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
-        `--pending-colour: ${sourceColour(pending ? pending.colorIndex : null)}`
-    ].join('; ');
-
     return h('button', {
         class: classes.join(' '),
-        style,
+        style: `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
         onclick: () => {
             if (selected) state.selectedDestinations.delete(device.id);
             else state.selectedDestinations.add(device.id);
@@ -255,7 +248,10 @@ async function performRoute() {
         el.routeResults.hidden = false;
         el.routeResults.replaceChildren(h('div', { class: 'warning', text: error.message }));
     } finally {
-        renderRouteBar();
+        // Redraw the cards, not just the button bar. The server pushes a device update as
+        // soon as the route finishes, which can repaint the list before the selection is
+        // cleared here - leaving ticks on screen that the state no longer holds.
+        renderRouting();
     }
 }
 
