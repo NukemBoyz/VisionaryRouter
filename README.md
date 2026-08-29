@@ -75,6 +75,26 @@ Restarting the application never changes a route. On startup it loads the saved 
 asks every decoder what it is currently following, and displays that. It does not replay
 anything.
 
+## Reading the colours
+
+Every encoder owns a colour. Every decoder following it is marked in the same one — the bar
+down the edge of its card, its tick box, and its swatch in the device table. So "which
+displays are on the same feed" is a glance, not a read.
+
+Colour says one thing only: **the source that is on that display right now.** Ticking a
+destination means "include this one" — it does not preview what the display is about to
+become. What you are about to route is on the highlighted source card and in the summary line
+above the button.
+
+Colour slots are assigned in the order encoders were added, so adding or renaming a source
+never recolours the ones already on screen. Online/offline stays green/red, and source
+colours are always bars or swatches — never status dots — so the two are never told apart by
+hue alone. A decoder following nothing, or following something outside the device list, shows
+neutral grey.
+
+Selections clear once a route finishes, so the next route can never quietly include displays
+from the last one.
+
 ## Verified, not assumed
 
 The UI never shows a route as successful because a button was pressed. After sending a

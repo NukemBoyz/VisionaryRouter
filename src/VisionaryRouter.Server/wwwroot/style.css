@@ -40,8 +40,9 @@
     --src-7: #ff8a5c;
 
     /* Falls back to a neutral for a source we have no colour for: a decoder following
-       something outside our device list, or nothing at all. */
-    --src-none: #4a5460;
+       something outside our device list, or nothing at all. Kept light enough to read as a
+       deliberate "no source" rather than as a rendering failure. */
+    --src-none: #6b7684;
 }
 
 * { box-sizing: border-box; }
@@ -210,14 +211,17 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 
 .card:hover { border-color: #3a434f; }
 
-.card.is-selected {
-    /* Selection is drawn in the card's own colour, so picking a source previews the colour
-       its destinations are about to take. */
-    border-color: var(--card-colour);
-    background: #1b2330;
-}
+.card.is-selected { background: #222b38; }
 
 .card.is-selected::before { width: 7px; }
+
+/* A source always has a colour, so its selection can be drawn in it. */
+.card-source.is-selected { border-color: var(--card-colour); }
+
+/* A destination might be following nothing, and its colour would then be the neutral grey -
+   too faint to signal selection. So destinations get a colour-independent selected outline,
+   and the colour keeps its one job: saying which source is on that display. */
+.card-dest.is-selected { border-color: #5d6a7d; }
 
 .card.is-offline { opacity: 0.55; }
 
@@ -270,10 +274,11 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 
 .card.is-selected .check {
-    /* Ticked destinations take the colour of the source about to be routed to them, not a
-       generic accent - so a pending route previews as the colour it will become. */
-    border-color: var(--pending-colour, var(--accent));
-    background: var(--pending-colour, var(--accent));
+    /* The tick carries the same colour as the card's bar - the source actually on that
+       display. Ticking a destination says "this one too", it does not say what it is about
+       to become; the highlighted source card and the summary line say that. */
+    border-color: var(--card-colour);
+    background: var(--card-colour);
     color: #06121f;
 }
 

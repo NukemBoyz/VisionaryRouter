@@ -130,7 +130,7 @@ function renderSourceCard(device) {
     const selected = state.selectedSource === device.id;
 
     return h('button', {
-        class: `card${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
+        class: `card card-source${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
         style: `--card-colour: ${sourceColour(device.colorIndex)}`,
         onclick: () => {
             state.selectedSource = selected ? null : device.id;
@@ -160,19 +160,11 @@ function renderDestinationCard(device) {
         current = h('span', { text: 'No source reported' });
     }
 
-    // Two colours are in play on a destination: the source it is following now (the bar down
-    // the edge) and the source it would take if routed (the tick box). While a route is being
-    // set up they differ, which is the point - you can see what is about to change.
-    const pending = state.selectedSource ? byId(state.selectedSource) : null;
-
-    const style = [
-        `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
-        `--pending-colour: ${sourceColour(pending ? pending.colorIndex : null)}`
-    ].join('; ');
-
+    // A destination is coloured by the source it is actually following - bar and tick box
+    // alike. Both say the same thing on purpose: what is on this display right now.
     return h('button', {
-        class: `card${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
-        style,
+        class: `card card-dest${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
+        style: `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
         onclick: () => {
             if (selected) state.selectedDestinations.delete(device.id);
             else state.selectedDestinations.add(device.id);
@@ -230,6 +222,12 @@ async function performRoute() {
             log(`${row.decoder}: ${row.status}${row.error ? ' — ' + row.error : ''}`,
                 row.status === 'Verified' ? 'ok' : 'fail');
         }
+
+        // Clear the destinations once the route is done. Leaving them ticked means the next
+        // route silently includes displays the operator finished with several routes ago.
+        // The source stays selected, since sending one source to more displays is a normal
+        // next step and re-picking it every time would be tedious.
+        state.selectedDestinations.clear();
     } catch (error) {
         log(error.message, 'fail');
         el.routeResults.hidden = false;
