@@ -160,14 +160,17 @@ function renderDestinationCard(device) {
         current = h('span', { text: 'No source reported' });
     }
 
-    // A destination is coloured by the source it is actually following - bar and tick box
-    // alike. Both say the same thing on purpose: what is on this display right now.
+    // A destination shows two things, and they answer different questions.
     //
-    // A decoder reporting no source gets a striped bar rather than a plain grey one. Flat
-    // grey reads as "no colour assigned"; stripes read as "this display is not showing
-    // anything", which is the difference between a cosmetic gap and a fault worth chasing.
-    // It is the honest answer for an endpoint that accepted a route and never switched -
-    // colouring it by the source we asked for would claim a route that did not happen.
+    // The bar down the edge is what is on that display right now, read back from the decoder.
+    // Striped when it reports nothing, because flat grey reads as a colour that failed to
+    // apply rather than as a display showing nothing.
+    //
+    // The tick box is the source being routed - it takes the colour of the selected encoder,
+    // so a ticked destination says which feed it is about to receive. The two differ exactly
+    // while a route is pending, which is the moment that difference is worth seeing.
+    const pending = state.selectedSource ? byId(state.selectedSource) : null;
+
     const hasSource = device.currentSourceColorIndex !== null
         && device.currentSourceColorIndex !== undefined;
 
@@ -176,9 +179,14 @@ function renderDestinationCard(device) {
     if (device.onlineState === 'Offline') classes.push('is-offline');
     if (!hasSource) classes.push('has-no-source');
 
+    const style = [
+        `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
+        `--pending-colour: ${sourceColour(pending ? pending.colorIndex : null)}`
+    ].join('; ');
+
     return h('button', {
         class: classes.join(' '),
-        style: `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
+        style,
         onclick: () => {
             if (selected) state.selectedDestinations.delete(device.id);
             else state.selectedDestinations.add(device.id);

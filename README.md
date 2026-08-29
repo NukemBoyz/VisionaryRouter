@@ -81,10 +81,16 @@ Every encoder owns a colour. Every decoder following it is marked in the same on
 down the edge of its card, its tick box, and its swatch in the device table. So "which
 displays are on the same feed" is a glance, not a read.
 
-Colour says one thing only: **the source that is on that display right now.** Ticking a
-destination means "include this one" — it does not preview what the display is about to
-become. What you are about to route is on the highlighted source card and in the summary line
-above the button.
+A destination row carries two marks, and they answer different questions:
+
+| Mark | Question |
+|---|---|
+| Bar down the left edge | What is on this display right now? |
+| Tick box | What am I about to send it? |
+
+They match once a route has verified. While a route is being set up they differ, which is
+the moment the difference is worth seeing — and a bar that stays unchanged after routing
+says the display never switched, however cheerfully the endpoint answered.
 
 Colour slots are assigned in the order encoders were added, so adding or renaming a source
 never recolours the ones already on screen. Online/offline stays green/red, and source

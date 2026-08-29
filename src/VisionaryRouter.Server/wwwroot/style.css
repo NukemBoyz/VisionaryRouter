@@ -240,16 +240,6 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
         #40232a 4px 8px);
 }
 
-/* The tick follows the same rule, so a selected destination cannot look like it is carrying
-   a source it is not carrying. */
-.card-dest.has-no-source.is-selected .check {
-    background: repeating-linear-gradient(
-        135deg,
-        var(--src-none) 0 3px,
-        #333b46 3px 6px);
-    border-color: var(--src-none);
-    color: var(--text);
-}
 
 .card.is-offline { opacity: 0.55; }
 
@@ -302,11 +292,11 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 
 .card.is-selected .check {
-    /* The tick carries the same colour as the card's bar - the source actually on that
-       display. Ticking a destination says "this one too", it does not say what it is about
-       to become; the highlighted source card and the summary line say that. */
-    border-color: var(--card-colour);
-    background: var(--card-colour);
+    /* The tick is the source being sent, not the source already there. Ticking a destination
+       while an encoder is selected shows that encoder's colour, so the pending route is
+       visible before the button is pressed. */
+    border-color: var(--pending-colour, var(--accent));
+    background: var(--pending-colour, var(--accent));
     color: #06121f;
 }
 
