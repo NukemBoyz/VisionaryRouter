@@ -71,7 +71,7 @@ var devices = new List<SimulatedDeviceConfig>
     },
     new()
     {
-        Name = "Lobby Display",
+        Name = "Lobby Display [SIM: powered off]",
         Type = SimulatedDeviceType.Decoder,
         Address = "127.0.0.23",
         Model = "D4100",
@@ -81,7 +81,7 @@ var devices = new List<SimulatedDeviceConfig>
     },
     new()
     {
-        Name = "Breakout Room",
+        Name = "Breakout Room [SIM: never switches]",
         Type = SimulatedDeviceType.Decoder,
         Address = "127.0.0.24",
         Model = "DuetD-5",
