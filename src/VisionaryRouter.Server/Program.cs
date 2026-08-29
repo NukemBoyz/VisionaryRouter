@@ -272,6 +272,13 @@ app.MapPost("/api/routes", async (
 
     var result = await routing.RouteAsync(encoder, decoders);
 
+    // Routing records which encoder each decoder was sent to. Persist that, so the
+    // assignment survives a restart the way the rest of the device configuration does.
+    foreach (var decoder in decoders)
+    {
+        devices.Save(decoder);
+    }
+
     events.Publish("devices", DeviceView.From(devices));
 
     return Results.Ok(new

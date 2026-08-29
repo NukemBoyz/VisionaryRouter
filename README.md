@@ -81,13 +81,21 @@ Every encoder owns a colour. Every decoder following it is marked in the same on
 down the edge of its card, its tick box, and its swatch in the device table. So "which
 displays are on the same feed" is a glance, not a read.
 
-Colour answers exactly one question: **which encoder is feeding which decoder.** The bar and
-the tick box on a destination both show the source that decoder reports it is following.
+Colour answers exactly one question: **which encoder is routed to which decoder.**
+
+A source carries its colour as a bar down the edge of its card. A destination carries it in
+its tick box, and nowhere else — grey until something is routed there, then the colour of the
+encoder it was sent. One coloured mark per row, so there is nothing to mistake for a second
+fact.
 
 Selecting a source does not recolour anything. Selecting changes nothing on the wall, so it
-changes nothing on screen — if a display's colour moves, a display's picture moved. That is
-the only promise this screen makes, and it is worth more than previewing a route that has not
-been sent.
+changes nothing on screen.
+
+The colour comes from what the decoder reports when it reports anything, falling back to what
+this application last sent it. That fallback is what keeps an unplugged decoder, or one that
+accepted a route and never switched, still showing where it was assigned. Whether the switch
+actually took is a separate question, answered by the line under the device name — `Showing
+Teams PC` against `No source reported` — and by the route results panel.
 
 Colour slots are assigned in the order encoders were added, so adding or renaming a source
 never recolours the ones already on screen. Online/offline stays green/red, and source

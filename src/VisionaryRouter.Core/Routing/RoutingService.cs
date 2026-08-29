@@ -74,6 +74,13 @@ public sealed class RoutingService
             return Fail(decoder, RouteStatus.Failed, "Decoder is disabled in this application");
         }
 
+        // Record the assignment at the point the route is issued, before we know whether it
+        // worked. This is what the operator asked for and it is what the UI colours by: the
+        // question "what did I send here" has an answer even when the endpoint is unplugged.
+        // Whether it took is a separate question, answered by the verification below.
+        decoder.AssignedEncoderIp = encoder.IpAddress;
+        decoder.UpdatedUtc = DateTime.UtcNow;
+
         var send = await _client.SendRouteAsync(decoder, encoder.IpAddress, cancellationToken);
 
         if (!send.Success)

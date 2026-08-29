@@ -55,6 +55,26 @@ public sealed class DeviceStore
             );
             """;
         command.ExecuteNonQuery();
+
+        // CREATE TABLE IF NOT EXISTS does nothing to a database that already exists, so
+        // columns added after the first release have to be applied separately.
+        AddColumnIfMissing(connection, "Devices", "AssignedEncoderIp", "TEXT NULL");
+    }
+
+    private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string definition)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $column";
+        check.Parameters.AddWithValue("$column", column);
+
+        if (Convert.ToInt64(check.ExecuteScalar()) > 0)
+        {
+            return;
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
+        alter.ExecuteNonQuery();
     }
 
     public List<Device> LoadAll()
@@ -66,7 +86,7 @@ public sealed class DeviceStore
             """
             SELECT Id, Name, Type, IpAddress, ControlPort, Enabled,
                    UnitId, Model, SerialNumber, MacAddress, Firmware, FirmwareDate, StreamMode,
-                   CreatedUtc, UpdatedUtc
+                   CreatedUtc, UpdatedUtc, AssignedEncoderIp
             FROM Devices
             ORDER BY Name
             """;
@@ -94,7 +114,10 @@ public sealed class DeviceStore
                 CreatedUtc = DateTime.Parse(reader.GetString(13)).ToUniversalTime(),
                 UpdatedUtc = DateTime.Parse(reader.GetString(14)).ToUniversalTime(),
 
-                // Left at their defaults on purpose: rediscovered from the network.
+                // The assignment is configuration - what we last sent this decoder to - so it
+                // survives a restart. What the decoder is actually showing is not: that is
+                // rediscovered from the network.
+                AssignedEncoderIp = reader.IsDBNull(15) ? null : reader.GetString(15),
                 OnlineState = OnlineState.Unknown,
                 CurrentEncoderIp = null
             });
@@ -113,16 +136,16 @@ public sealed class DeviceStore
             INSERT INTO Devices
                 (Id, Name, Type, IpAddress, ControlPort, Enabled,
                  UnitId, Model, SerialNumber, MacAddress, Firmware, FirmwareDate, StreamMode,
-                 CreatedUtc, UpdatedUtc)
+                 CreatedUtc, UpdatedUtc, AssignedEncoderIp)
             VALUES
                 ($id, $name, $type, $ip, $port, $enabled,
                  $unitId, $model, $serial, $mac, $firmware, $firmwareDate, $streamMode,
-                 $created, $updated)
+                 $created, $updated, $assigned)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name, Type = $type, IpAddress = $ip, ControlPort = $port, Enabled = $enabled,
                 UnitId = $unitId, Model = $model, SerialNumber = $serial, MacAddress = $mac,
                 Firmware = $firmware, FirmwareDate = $firmwareDate, StreamMode = $streamMode,
-                UpdatedUtc = $updated
+                UpdatedUtc = $updated, AssignedEncoderIp = $assigned
             """;
 
         command.Parameters.AddWithValue("$id", device.Id.ToString());
@@ -140,6 +163,7 @@ public sealed class DeviceStore
         command.Parameters.AddWithValue("$streamMode", (object?)device.StreamMode ?? DBNull.Value);
         command.Parameters.AddWithValue("$created", device.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updated", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$assigned", (object?)device.AssignedEncoderIp ?? DBNull.Value);
 
         command.ExecuteNonQuery();
     }

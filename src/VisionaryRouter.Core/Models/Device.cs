@@ -32,6 +32,16 @@ public sealed class Device
     /// <summary>Decoders only: the encoder IP this decoder reports it is following.</summary>
     public string? CurrentEncoderIp { get; set; }
 
+    /// <summary>
+    /// Decoders only: the encoder this application last sent this decoder to.
+    ///
+    /// Deliberately separate from <see cref="CurrentEncoderIp"/>, which is what the decoder
+    /// says it is doing. The two agree on healthy hardware and part company on an endpoint
+    /// that accepts a route and never switches - keeping both means the UI can show the
+    /// assignment while the reported state still tells us whether it took.
+    /// </summary>
+    public string? AssignedEncoderIp { get; set; }
+
     public OnlineState OnlineState { get; set; } = OnlineState.Unknown;
     public DateTime? LastSeenUtc { get; set; }
     public string? LastError { get; set; }

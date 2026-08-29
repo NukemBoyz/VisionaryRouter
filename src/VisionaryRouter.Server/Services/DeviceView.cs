@@ -38,11 +38,18 @@ public sealed record DeviceView
     public int? ColorIndex { get; init; }
 
     /// <summary>
-    /// Decoders only: the colour of the source this decoder is following, so a destination
-    /// carries its source's colour without the browser having to resolve it. Null when the
-    /// decoder is following nothing, or something we do not have in the device list.
+    /// Decoders only: the colour the UI paints this destination - the encoder routed to it.
+    ///
+    /// Resolved from what the decoder reports when it reports anything, falling back to what
+    /// this application last sent it. The fallback is what keeps an unreachable decoder, or
+    /// one that accepted a route and never switched, showing the source it was assigned
+    /// rather than going blank. Null means nothing has been routed here and the decoder is
+    /// not following anything we know about.
     /// </summary>
-    public int? CurrentSourceColorIndex { get; init; }
+    public int? RoutedSourceColorIndex { get; init; }
+
+    /// <summary>Decoders only: the encoder this decoder was assigned by this application.</summary>
+    public string? AssignedEncoderIp { get; init; }
 
     public static DeviceView From(Device device, DeviceRegistry registry) => new()
     {
@@ -62,9 +69,15 @@ public sealed record DeviceView
         LastSeenUtc = device.LastSeenUtc,
         CurrentEncoderIp = device.CurrentEncoderIp,
         CurrentSourceName = registry.FindByIp(device.CurrentEncoderIp)?.Name,
+        AssignedEncoderIp = device.AssignedEncoderIp,
         ColorIndex = registry.ColorIndexFor(device),
-        CurrentSourceColorIndex = registry.FindByIp(device.CurrentEncoderIp) is { } source
-            ? registry.ColorIndexFor(source)
+
+        // Reported source first, so a route made outside this application still colours the
+        // destination; our own assignment second, so a decoder that was sent somewhere still
+        // shows where even when it never confirmed.
+        RoutedSourceColorIndex =
+            registry.FindByIp(device.CurrentEncoderIp) is { } reported ? registry.ColorIndexFor(reported)
+            : registry.FindByIp(device.AssignedEncoderIp) is { } assigned ? registry.ColorIndexFor(assigned)
             : null
     };
 

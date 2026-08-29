@@ -218,6 +218,35 @@ public class RoutingServiceTests
     }
 
     [Fact]
+    public async Task Records_the_assigned_encoder_even_when_the_decoder_never_switches()
+    {
+        // The UI colours a destination by the encoder assigned to it, so the assignment has to
+        // be recorded on the attempt. An endpoint that accepts a route and ignores it still
+        // shows the operator where they sent it - the reported source, separately, is what
+        // says whether it took.
+        var (routing, transport) = Build();
+        transport.AddDecoder("10.0.0.20").RefuseToSwitch = true;
+
+        var decoder = Decoder("10.0.0.20", "Breakout Room");
+        await routing.RouteAsync(Encoder("10.0.0.10"), [decoder]);
+
+        Assert.Equal("10.0.0.10", decoder.AssignedEncoderIp);
+        Assert.NotEqual(decoder.AssignedEncoderIp, decoder.CurrentEncoderIp);
+    }
+
+    [Fact]
+    public async Task Records_the_assigned_encoder_even_when_the_decoder_is_unreachable()
+    {
+        var (routing, _) = Build();
+
+        var decoder = Decoder("10.0.0.99", "Lobby Display");
+        var result = await routing.RouteAsync(Encoder("10.0.0.10"), [decoder]);
+
+        Assert.Equal(RouteStatus.Offline, result.Results.Single().Status);
+        Assert.Equal("10.0.0.10", decoder.AssignedEncoderIp);
+    }
+
+    [Fact]
     public async Task A_disabled_decoder_is_skipped_without_being_contacted()
     {
         var (routing, transport) = Build();

@@ -160,26 +160,19 @@ function renderDestinationCard(device) {
         current = h('span', { text: 'No source reported' });
     }
 
-    // Both marks on a destination - the bar down the edge and the tick box - show the source
-    // the decoder reports it is following. Nothing here reacts to which source is selected.
+    // A destination carries its colour in one place only: the tick box, showing the encoder
+    // routed to it. Grey means nothing has been routed here. Destinations have no edge bar -
+    // two coloured marks on one row invited reading them as two different facts.
     //
-    // Selecting a source must not recolour a destination, because selecting changes nothing
-    // on the wall. If a display's colour moves, a display's picture moved; that is the only
-    // promise this screen makes, and a preview of a route not yet sent would break it.
-    //
-    // The bar is striped when the decoder reports no source, because flat grey reads as a
-    // colour that failed to apply rather than as a display showing nothing.
-    const hasSource = device.currentSourceColorIndex !== null
-        && device.currentSourceColorIndex !== undefined;
-
+    // Nothing here reacts to which source is selected. Selecting changes nothing on the wall,
+    // so it changes nothing on screen.
     const classes = ['card', 'card-dest'];
     if (selected) classes.push('is-selected');
     if (device.onlineState === 'Offline') classes.push('is-offline');
-    if (!hasSource) classes.push('has-no-source');
 
     return h('button', {
         class: classes.join(' '),
-        style: `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
+        style: `--card-colour: ${sourceColour(device.routedSourceColorIndex)}`,
         onclick: () => {
             if (selected) state.selectedDestinations.delete(device.id);
             else state.selectedDestinations.add(device.id);
@@ -324,7 +317,7 @@ function renderDeviceTable(table, devices, showSource) {
                 device.currentSourceName
                     ? h('span', {
                         class: 'swatch',
-                        style: `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`
+                        style: `--card-colour: ${sourceColour(device.routedSourceColorIndex)}`
                     })
                     : null,
                 device.currentSourceName || device.currentEncoderIp || '—')
