@@ -34,6 +34,16 @@ public sealed record DeviceView
     /// </summary>
     public string? CurrentSourceName { get; init; }
 
+    /// <summary>Encoders only: which colour slot this source occupies in the UI.</summary>
+    public int? ColorIndex { get; init; }
+
+    /// <summary>
+    /// Decoders only: the colour of the source this decoder is following, so a destination
+    /// carries its source's colour without the browser having to resolve it. Null when the
+    /// decoder is following nothing, or something we do not have in the device list.
+    /// </summary>
+    public int? CurrentSourceColorIndex { get; init; }
+
     public static DeviceView From(Device device, DeviceRegistry registry) => new()
     {
         Id = device.Id,
@@ -51,7 +61,11 @@ public sealed record DeviceView
         LastError = device.LastError,
         LastSeenUtc = device.LastSeenUtc,
         CurrentEncoderIp = device.CurrentEncoderIp,
-        CurrentSourceName = registry.FindByIp(device.CurrentEncoderIp)?.Name
+        CurrentSourceName = registry.FindByIp(device.CurrentEncoderIp)?.Name,
+        ColorIndex = registry.ColorIndexFor(device),
+        CurrentSourceColorIndex = registry.FindByIp(device.CurrentEncoderIp) is { } source
+            ? registry.ColorIndexFor(source)
+            : null
     };
 
     public static IReadOnlyList<DeviceView> From(DeviceRegistry registry) =>

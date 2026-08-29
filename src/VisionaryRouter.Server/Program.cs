@@ -65,7 +65,15 @@ logger.LogInformation("Database: {Path}", databasePath);
 logger.LogInformation("Loaded {Count} device(s)", registry.All().Count);
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    // Revalidate every request rather than serving from cache blind. The UI is a handful of
+    // small files coming off localhost, so the cost is a 304, and the alternative is an
+    // operator looking at a stale control surface after an update - which is the one thing
+    // this application must not do.
+    OnPrepareResponse = context => context.Context.Response.Headers.CacheControl = "no-cache"
+});
 
 // ---------------------------------------------------------------------------
 // Device management

@@ -88,6 +88,22 @@ async function api(method, path, body) {
     return payload;
 }
 
+// How many slots the CSS palette defines. Beyond this, colours repeat - a system with more
+// than eight simultaneous sources gets duplicates rather than running out.
+const PALETTE_SIZE = 8;
+
+/*
+   Resolves a colour slot to the CSS variable holding it.
+
+   The server decides which slot a source occupies, so the assignment survives a reload and
+   stays put when devices are renamed or added. The browser only turns a number into a colour.
+*/
+function sourceColour(colorIndex) {
+    return colorIndex === null || colorIndex === undefined
+        ? 'var(--src-none)'
+        : `var(--src-${colorIndex % PALETTE_SIZE})`;
+}
+
 const encoders = () => state.devices.filter(d => d.type === 'Encoder');
 const decoders = () => state.devices.filter(d => d.type === 'Decoder');
 const unclassified = () => state.devices.filter(d => d.type === 'Unknown');
@@ -115,6 +131,7 @@ function renderSourceCard(device) {
 
     return h('button', {
         class: `card${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
+        style: `--card-colour: ${sourceColour(device.colorIndex)}`,
         onclick: () => {
             state.selectedSource = selected ? null : device.id;
             renderRouting();
@@ -143,8 +160,19 @@ function renderDestinationCard(device) {
         current = h('span', { text: 'No source reported' });
     }
 
+    // Two colours are in play on a destination: the source it is following now (the bar down
+    // the edge) and the source it would take if routed (the tick box). While a route is being
+    // set up they differ, which is the point - you can see what is about to change.
+    const pending = state.selectedSource ? byId(state.selectedSource) : null;
+
+    const style = [
+        `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
+        `--pending-colour: ${sourceColour(pending ? pending.colorIndex : null)}`
+    ].join('; ');
+
     return h('button', {
         class: `card${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
+        style,
         onclick: () => {
             if (selected) state.selectedDestinations.delete(device.id);
             else state.selectedDestinations.add(device.id);
@@ -196,7 +224,7 @@ async function performRoute() {
             decoderIds: destinationIds
         });
 
-        renderRouteResults(result);
+        renderRouteResults(result, source.colorIndex);
 
         for (const row of result.results) {
             log(`${row.decoder}: ${row.status}${row.error ? ' — ' + row.error : ''}`,
@@ -211,7 +239,7 @@ async function performRoute() {
     }
 }
 
-function renderRouteResults(result) {
+function renderRouteResults(result, colorIndex) {
     const rows = result.results.map(row => h('div', { class: 'result-row' },
         h('span', { class: `badge badge-${row.status}`, text: row.status }),
         h('span', { class: 'result-name', text: row.decoder }),
@@ -220,6 +248,9 @@ function renderRouteResults(result) {
     const heading = result.failureCount === 0
         ? `${result.encoder} routed to ${result.successCount} destination${result.successCount === 1 ? '' : 's'}`
         : `${result.encoder}: ${result.successCount} verified, ${result.failureCount} failed`;
+
+    // The results belong to one source, so the panel wears that source's colour.
+    el.routeResults.style.setProperty('--card-colour', sourceColour(colorIndex));
 
     // replaceChildren stringifies anything that is not a node, so nulls have to be filtered
     // out rather than passed through the way h() tolerates them.
@@ -259,15 +290,28 @@ function renderDeviceTable(table, devices, showSource) {
     }
 
     const rows = devices.map(device => h('tr', {},
-        h('td', {}, h('input', {
-            class: 'name-input',
-            value: device.name,
-            onchange: event => rename(device, event.target.value)
-        })),
+        h('td', {}, h('div', { class: 'name-cell' },
+            // Encoders carry their own swatch here so the Devices tab and the Routing tab
+            // agree on which colour means which source.
+            device.type === 'Encoder'
+                ? h('span', { class: 'swatch', style: `--card-colour: ${sourceColour(device.colorIndex)}` })
+                : null,
+            h('input', {
+                class: 'name-input',
+                value: device.name,
+                onchange: event => rename(device, event.target.value)
+            }))),
         h('td', { class: 'mono', text: device.controlPort === 8000 ? device.ipAddress : `${device.ipAddress}:${device.controlPort}` }),
         h('td', { text: device.model || '—' }),
         showSource
-            ? h('td', { text: device.currentSourceName || device.currentEncoderIp || '—' })
+            ? h('td', {},
+                device.currentSourceName
+                    ? h('span', {
+                        class: 'swatch',
+                        style: `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`
+                    })
+                    : null,
+                device.currentSourceName || device.currentEncoderIp || '—')
             : h('td', { text: device.streamMode || '—' }),
         h('td', {},
             h('span', { class: `state-dot state-${device.onlineState}` }),

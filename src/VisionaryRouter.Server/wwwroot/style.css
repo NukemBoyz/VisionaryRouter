@@ -20,6 +20,28 @@
     --fail: #f2545b;
     --offline: #6b7684;
     --radius: 10px;
+
+    /* Source colours.
+
+       Each encoder gets one of these, and every decoder following it is marked with the same
+       colour, so "which displays are on the same source" is answerable at a glance instead of
+       by reading names.
+
+       Chosen for hue separation rather than prettiness, and kept clear of the greens and reds
+       used for online/offline - a source colour is always a bar or a swatch, never a status
+       dot, so the two never have to be told apart by colour alone. */
+    --src-0: #3b9dff;
+    --src-1: #f2a63c;
+    --src-2: #b06cf0;
+    --src-3: #2fd4b8;
+    --src-4: #f2708f;
+    --src-5: #a8d84a;
+    --src-6: #8b93ff;
+    --src-7: #ff8a5c;
+
+    /* Falls back to a neutral for a source we have no colour for: a decoder following
+       something outside our device list, or nothing at all. */
+    --src-none: #4a5460;
 }
 
 * { box-sizing: border-box; }
@@ -159,7 +181,7 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     align-items: center;
     gap: 12px;
     width: 100%;
-    padding: 14px 16px;
+    padding: 14px 16px 14px 20px;
     background: var(--panel-raised);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -167,14 +189,35 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
     font: inherit;
     text-align: left;
     cursor: pointer;
+
+    /* The source colour rides on the card itself, set per element as --card-colour. A source
+       card carries its own; a destination card carries the colour of whatever it is following,
+       which is what makes a group of displays on one source read as a group. */
+    --card-colour: var(--src-none);
+    position: relative;
+    overflow: hidden;
+}
+
+/* The colour bar down the leading edge. A pseudo-element rather than a border so the card's
+   own border can still show selection and hover state independently. */
+.card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    background: var(--card-colour);
 }
 
 .card:hover { border-color: #3a434f; }
 
 .card.is-selected {
-    border-color: var(--accent);
-    background: #16283c;
+    /* Selection is drawn in the card's own colour, so picking a source previews the colour
+       its destinations are about to take. */
+    border-color: var(--card-colour);
+    background: #1b2330;
 }
+
+.card.is-selected::before { width: 7px; }
 
 .card.is-offline { opacity: 0.55; }
 
@@ -227,9 +270,22 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 }
 
 .card.is-selected .check {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: #fff;
+    /* Ticked destinations take the colour of the source about to be routed to them, not a
+       generic accent - so a pending route previews as the colour it will become. */
+    border-color: var(--pending-colour, var(--accent));
+    background: var(--pending-colour, var(--accent));
+    color: #06121f;
+}
+
+/* Source swatch used in the device tables and beside a decoder's current source. */
+.swatch {
+    display: inline-block;
+    vertical-align: middle;
+    width: 10px;
+    height: 10px;
+    margin-right: 7px;
+    border-radius: 3px;
+    background: var(--card-colour, var(--src-none));
 }
 
 .route-bar {
@@ -286,6 +342,7 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .results {
     background: var(--panel);
     border: 1px solid var(--border);
+    border-left: 5px solid var(--card-colour, var(--src-none));
     border-radius: var(--radius);
     padding: 16px 18px;
     margin-bottom: 20px;
@@ -392,6 +449,8 @@ table.devices tr:last-child td { border-bottom: 0; }
 .mono { font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
 
 .device-error { color: var(--fail); font-size: 12.5px; }
+
+.name-cell { display: flex; align-items: center; }
 
 .name-input {
     background: transparent;

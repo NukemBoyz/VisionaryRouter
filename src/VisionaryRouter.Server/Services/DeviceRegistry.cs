@@ -43,6 +43,33 @@ public sealed class DeviceRegistry
             : _devices.Values.FirstOrDefault(d =>
                 string.Equals(d.IpAddress, ipAddress, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Which colour slot an encoder occupies in the UI, or null if it is not an encoder.
+    ///
+    /// Encoders are ordered by when they were added rather than by name, so adding a source
+    /// or renaming one never recolours the sources already on screen. Deleting an encoder does
+    /// shift the ones added after it, which is the accepted cost of assigning slots in order
+    /// instead of hashing the id - hashing is stable through deletes but collides, and two
+    /// sources sharing a colour defeats the point.
+    /// </summary>
+    public int? ColorIndexFor(Device device)
+    {
+        if (device.Type != DeviceType.Encoder)
+        {
+            return null;
+        }
+
+        var ordered = _devices.Values
+            .Where(d => d.Type == DeviceType.Encoder)
+            .OrderBy(d => d.CreatedUtc)
+            .ThenBy(d => d.Id)
+            .ToList();
+
+        var position = ordered.FindIndex(d => d.Id == device.Id);
+
+        return position < 0 ? null : position;
+    }
+
     public void Add(Device device)
     {
         _devices[device.Id] = device;
