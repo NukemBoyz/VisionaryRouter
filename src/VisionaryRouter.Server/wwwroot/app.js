@@ -162,8 +162,22 @@ function renderDestinationCard(device) {
 
     // A destination is coloured by the source it is actually following - bar and tick box
     // alike. Both say the same thing on purpose: what is on this display right now.
+    //
+    // A decoder reporting no source gets a striped bar rather than a plain grey one. Flat
+    // grey reads as "no colour assigned"; stripes read as "this display is not showing
+    // anything", which is the difference between a cosmetic gap and a fault worth chasing.
+    // It is the honest answer for an endpoint that accepted a route and never switched -
+    // colouring it by the source we asked for would claim a route that did not happen.
+    const hasSource = device.currentSourceColorIndex !== null
+        && device.currentSourceColorIndex !== undefined;
+
+    const classes = ['card', 'card-dest'];
+    if (selected) classes.push('is-selected');
+    if (device.onlineState === 'Offline') classes.push('is-offline');
+    if (!hasSource) classes.push('has-no-source');
+
     return h('button', {
-        class: `card card-dest${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
+        class: classes.join(' '),
         style: `--card-colour: ${sourceColour(device.currentSourceColorIndex)}`,
         onclick: () => {
             if (selected) state.selectedDestinations.delete(device.id);

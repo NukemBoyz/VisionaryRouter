@@ -89,8 +89,17 @@ above the button.
 Colour slots are assigned in the order encoders were added, so adding or renaming a source
 never recolours the ones already on screen. Online/offline stays green/red, and source
 colours are always bars or swatches — never status dots — so the two are never told apart by
-hue alone. A decoder following nothing, or following something outside the device list, shows
-neutral grey.
+hue alone.
+
+**A striped bar means the display is not showing anything.** Grey stripes: the decoder is
+answering but reports no source. Red stripes: it is not answering at all. Stripes rather than
+flat grey because flat grey reads as a missing colour, and this is a fault worth chasing.
+
+That distinction is the point of the whole scheme. Route a source to a decoder that accepts
+the command and never switches, and its bar stays striped — the application will not colour
+it by the source you asked for, because that would claim a route that did not happen. If a
+destination is not wearing the colour you routed to it, believe the display, not the button
+you pressed.
 
 Selections clear once a route finishes, so the next route can never quietly include displays
 from the last one.

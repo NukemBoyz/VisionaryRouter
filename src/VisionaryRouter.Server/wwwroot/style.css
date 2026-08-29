@@ -223,6 +223,34 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
    and the colour keeps its one job: saying which source is on that display. */
 .card-dest.is-selected { border-color: #5d6a7d; }
 
+/* Not showing anything. Striped rather than flat, so it reads as a state the application is
+   reporting rather than a colour it failed to apply. */
+.card-dest.has-no-source::before {
+    background: repeating-linear-gradient(
+        135deg,
+        var(--src-none) 0 4px,
+        #333b46 4px 8px);
+}
+
+/* Not answering at all - a stronger fault than "answering, but showing nothing". */
+.card-dest.is-offline::before {
+    background: repeating-linear-gradient(
+        135deg,
+        var(--fail) 0 4px,
+        #40232a 4px 8px);
+}
+
+/* The tick follows the same rule, so a selected destination cannot look like it is carrying
+   a source it is not carrying. */
+.card-dest.has-no-source.is-selected .check {
+    background: repeating-linear-gradient(
+        135deg,
+        var(--src-none) 0 3px,
+        #333b46 3px 6px);
+    border-color: var(--src-none);
+    color: var(--text);
+}
+
 .card.is-offline { opacity: 0.55; }
 
 .card-body { flex: 1; min-width: 0; }
