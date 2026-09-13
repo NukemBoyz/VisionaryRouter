@@ -29,18 +29,20 @@ Implemented:
 - Route/source color visualization in the UI
 - Verified per-encoder HDMI 1, HDMI 2, and USB-C input controls
 - Explicit IPv4 `/24` device scan that adds confirmed endpoints and refreshes existing matches
+- Decoder groups and routing presets, stored as JSON in the `Settings` table
+- Optional HTTP basic authentication, required before the UI may bind to all interfaces
+- Credential redaction at the protocol boundary
 
 Not implemented:
 
 - Full real-hardware acceptance testing (basic E4200/D4200 routing has passed)
+- Visual confirmation that a routed display actually changes picture
 - Multicast discovery on `226.0.0.19`
 - User-selectable control NIC binding
-- Decoder groups
-- Presets/scenes
 - Traditional matrix view
 - Windows Service integration and installer
 - Backup/export/import
-- Authentication/HTTPS for LAN access
+- HTTPS (basic authentication exists; the transport is still plain HTTP)
 - Capability profiles for distinct 4-Series/5-Series/X5K behaviors
 
 ## Verified Build State
@@ -52,7 +54,7 @@ dotnet build VisionaryRouter.slnx --configuration Release --no-restore
 Build succeeded. 0 warnings, 0 errors.
 
 dotnet test VisionaryRouter.slnx --configuration Release
-Passed: 55, Failed: 0, Skipped: 0.
+Passed: 76, Failed: 0, Skipped: 0.
 ```
 
 The repository was clean before this handoff/README documentation change.
@@ -118,6 +120,8 @@ The route command is sent to each decoder. One encoder to many decoders is a set
 
 The command builder refuses `SAVE`, `UNIT.SAVE`, `UNIT.RESET`, and `UNIT.REBOOT`. Routine switching must remain volatile. Do not add persistence writes without confirming current official API semantics and receiving an explicit product requirement.
 
+`VisionaryResponse.Parse` redacts credential-bearing fields before returning, so a secret disclosed by an endpoint never enters application memory. Tested firmware returns `UNIT.PASSWORD` in `QUERY.ALL`, and raw responses reach the probe console, debug logs, the HTTP API and the browser activity panel. Redaction is therefore done once at the boundary rather than at each of those call sites. See `VisionaryRedaction`; the simulator reproduces the disclosure so the behavior is testable without hardware. Do not add a code path that returns the unredacted text.
+
 ## Runtime Defaults
 
 ```text
@@ -134,7 +138,7 @@ Decoder route poll interval: 3 seconds
 Encoder heartbeat interval: 10 seconds
 ```
 
-`Router:ListenOnAllInterfaces=true` exposes the unauthenticated control UI to the LAN. Keep it opt-in until authentication/authorization is deliberately designed.
+`Router:ListenOnAllInterfaces=true` now requires `Router:AdminPassword`; the server throws at startup rather than serving an unauthenticated control surface to the LAN. Set the password out of band, for example via the `Router__AdminPassword` environment variable, and do not commit it. The transport is still plain HTTP, so treat LAN exposure as suitable for a trusted control network only.
 
 The SQLite database is normally:
 
@@ -304,3 +308,15 @@ At the end of each meaningful work session:
 - Both live encoders accepted and verified `STREAM.VIDEO=HDMI1`. The API also correctly rejected input selection against decoder records.
 - Visually verified the encoder buttons and the responsive scan UI in the running browser; the browser showed scan progress and the final 0-added/4-refreshed result.
 - Forced Release rebuild succeeded with zero warnings/errors. Test suite now passes 55 tests.
+
+### 2026-09-13 — commit of pending work and credential redaction
+
+- Found the previous session's work entirely uncommitted: 20 modified files, 1155 insertions, plus `HANDOFF.md`, `BasicAuthenticationMiddleware.cs`, `DiscoveryService.cs` and `RoutingConfigurationStore.cs` untracked. Committed it unmodified as `d81201b` before making any changes, so the hardware-validated state is recorded separately from the follow-up.
+- Fixed the credential disclosure recorded earlier the same day. `UNIT.PASSWORD` from `QUERY.ALL` was reaching the probe console and its parsed key dump, the `raw` field of `POST /api/devices/{id}/probe`, the browser activity log line `<device> responded: <raw>`, and `UDP RX` debug logging. It had been documented but not remediated.
+- Redaction is applied in `VisionaryResponse.Parse`, so the value does not survive into the application and no later call site can leak it by omission. `VisionaryRedaction` matches `PASSWORD`, `PASSWD`, `PASSPHRASE`, `SECRET`, `CREDENTIAL` and `TOKEN` against key names only. A bare `KEY` is deliberately not matched: `QUERY.KEY` is a command parameter and blanking it would break route verification.
+- The simulator's `QUERY.ALL` now returns a `UNIT.PASSWORD` value, matching observed 2.3.152 behavior, so redaction can be regression-tested without hardware.
+- Verified end to end against the simulator: the endpoint transmitted `UNIT.PASSWORD=sim-password-should-never-be-displayed` and `probe info 127.0.0.10` printed `***REDACTED***` in both the raw line and the parsed dump.
+- Corrected this handoff, which had drifted: groups, presets and authentication were listed as not implemented despite existing, and the recorded test count was stale.
+- `dotnet build VisionaryRouter.slnx --configuration Release` — 0 warnings, 0 errors.
+- `dotnet test VisionaryRouter.slnx --configuration Release` — 76 passed, 0 failed.
+- Still outstanding and unchanged: nobody has confirmed a display actually changes picture when routed.

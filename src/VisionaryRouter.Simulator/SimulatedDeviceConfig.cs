@@ -27,6 +27,13 @@ public sealed class SimulatedDeviceConfig
     public string MacAddress { get; init; } = "00:00:00:00:00:00";
     public string StreamMode { get; init; } = "multicast";
 
+    /// <summary>
+    /// Stands in for the administrative password real firmware discloses in QUERY.ALL. It is
+    /// deliberately obvious: if this string ever appears in a log, a console or the browser,
+    /// redaction has stopped working.
+    /// </summary>
+    public string Password { get; init; } = "sim-password-should-never-be-displayed";
+
     /// <summary>Decoders only: the encoder this unit is following at startup.</summary>
     public string? InitialStreamHost { get; init; }
 

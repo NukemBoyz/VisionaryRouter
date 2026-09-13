@@ -176,6 +176,102 @@ public class ResponseParserTests
     }
 }
 
+public class RedactionTests
+{
+    // The shape of a real QUERY.ALL reply from 4-Series firmware 2.3.152, which discloses the
+    // endpoint's administrative password alongside ordinary metadata.
+    private const string FullDumpWithPassword =
+        "&UNIT.ID=ENC1&UNIT.MODEL=E4200&UNIT.PASSWORD=hunter2&IP.ADDRESS=192.168.0.16" +
+        "&STREAM.MODE=multicast&API.STATUS=SUCCESS_QUERY";
+
+    [Fact]
+    public void A_password_never_survives_parsing()
+    {
+        var response = VisionaryResponse.Parse(FullDumpWithPassword);
+
+        // Raw reaches a console, a debug log, an HTTP response and the browser's activity
+        // panel. Checking the whole object rather than one accessor is the point.
+        Assert.DoesNotContain("hunter2", response.Raw);
+        Assert.DoesNotContain("hunter2", string.Join('|', response.Values.Values));
+        Assert.Equal(VisionaryRedaction.Placeholder, response.Get("UNIT.PASSWORD"));
+    }
+
+    [Fact]
+    public void Redaction_leaves_every_other_field_intact()
+    {
+        var response = VisionaryResponse.Parse(FullDumpWithPassword);
+
+        Assert.Equal("ENC1", response.Get(VisionaryKeys.UnitId));
+        Assert.Equal("E4200", response.Get(VisionaryKeys.UnitModel));
+        Assert.Equal("192.168.0.16", response.Get(VisionaryKeys.IpAddress));
+        Assert.Equal("multicast", response.Get(VisionaryKeys.StreamMode));
+        Assert.True(response.IsSuccess);
+    }
+
+    [Fact]
+    public void Query_key_is_not_mistaken_for_a_credential()
+    {
+        // QUERY.KEY names the field to read. Blanking it because it contains "KEY" would break
+        // route verification, which is built entirely on QUERY.KEY=STREAM.HOST.
+        var response = VisionaryResponse.Parse("&QUERY.KEY=STREAM.HOST&STREAM.HOST=10.0.0.1");
+
+        Assert.Equal("STREAM.HOST", response.Get("QUERY.KEY"));
+        Assert.Equal("10.0.0.1", response.Get(VisionaryKeys.StreamHost));
+    }
+
+    [Fact]
+    public void Routing_verification_still_works_on_a_reply_that_carried_a_password()
+    {
+        // The end that matters: redaction must not disturb the value routing is verified from.
+        var response = VisionaryResponse.Parse(
+            "&STREAM.HOST=192.168.0.16&UNIT.PASSWORD=hunter2&API.STATUS=SUCCESS_QUERY");
+
+        Assert.Equal("192.168.0.16", response.Get(VisionaryKeys.StreamHost));
+    }
+
+    [Theory]
+    [InlineData("UNIT.PASSWORD")]
+    [InlineData("unit.password")]
+    [InlineData("ADMIN.PASSWD")]
+    [InlineData("API.TOKEN")]
+    [InlineData("WIFI.PASSPHRASE")]
+    [InlineData("SOME.SECRET")]
+    [InlineData("USER.CREDENTIAL")]
+    public void Credential_bearing_keys_are_recognised(string key)
+    {
+        Assert.True(VisionaryRedaction.IsSensitive(key));
+    }
+
+    [Theory]
+    [InlineData("QUERY.KEY")]
+    [InlineData("STREAM.HOST")]
+    [InlineData("UNIT.MODEL")]
+    [InlineData("API.STATUS")]
+    [InlineData("STREAM.VIDEO")]
+    public void Ordinary_keys_are_left_alone(string key)
+    {
+        Assert.False(VisionaryRedaction.IsSensitive(key));
+    }
+
+    [Fact]
+    public void An_empty_credential_value_is_not_replaced_with_a_placeholder()
+    {
+        // Reporting a redacted secret where the endpoint sent nothing would be its own kind of
+        // misleading - it implies a password exists.
+        var response = VisionaryResponse.Parse("&UNIT.PASSWORD=&API.STATUS=SUCCESS_QUERY");
+
+        Assert.Equal(string.Empty, response.Get("UNIT.PASSWORD"));
+    }
+
+    [Fact]
+    public void Redacting_text_without_secrets_changes_nothing()
+    {
+        const string raw = "&STREAM.HOST=10.0.0.1&API.STATUS=SUCCESS_QUERY";
+
+        Assert.Equal(raw, VisionaryRedaction.Redact(raw));
+    }
+}
+
 public class DeviceClassifierTests
 {
     [Theory]

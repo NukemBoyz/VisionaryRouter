@@ -20,7 +20,11 @@ public sealed class VisionaryResponse
         _values = values;
     }
 
-    /// <summary>The response exactly as received. Always logged, never discarded.</summary>
+    /// <summary>
+    /// The response as received, with credential values replaced. Always logged, never
+    /// discarded - it is the record of what the endpoint actually said, and the only part
+    /// withheld is the part no diagnosis needs.
+    /// </summary>
     public string Raw { get; }
 
     /// <summary>Every key/value pair found, including ones this application does not understand.</summary>
@@ -44,10 +48,15 @@ public sealed class VisionaryResponse
     {
         raw ??= string.Empty;
 
+        // Credentials are stripped here, at the boundary, so no sensitive value ever exists
+        // inside the application to be logged, serialised or displayed later. See
+        // VisionaryRedaction for why this is done during parsing rather than at each output.
+        var redacted = VisionaryRedaction.Redact(raw);
+
         // Keys are case-sensitive, so the dictionary is too.
         var values = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach (var field in raw.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var field in redacted.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             // Split on the first '=' only: values may legitimately contain '='.
             var separator = field.IndexOf('=');
@@ -63,6 +72,6 @@ public sealed class VisionaryResponse
             values.TryAdd(key, value);
         }
 
-        return new VisionaryResponse(raw, values);
+        return new VisionaryResponse(redacted, values);
     }
 }

@@ -239,7 +239,13 @@ public sealed class SimulatedEndpoint
             $"{VisionaryKeys.UnitFirmwareDate}=2025-11-04",
             $"{VisionaryKeys.UnitMacAddress}={_config.MacAddress}",
             $"{VisionaryKeys.IpAddress}={_config.Address}",
-            $"{VisionaryKeys.StreamMode}={_config.StreamMode}"
+            $"{VisionaryKeys.StreamMode}={_config.StreamMode}",
+
+            // Real 4-Series firmware (2.3.152, observed 2026-09-13) returns the endpoint's own
+            // administrative password in QUERY.ALL. Reproduced here so that redaction can be
+            // exercised without hardware - a simulator that omitted it would let a regression
+            // through unnoticed until a live unit leaked a real credential.
+            $"UNIT.PASSWORD={_config.Password}"
         };
 
         if (_config.Type == SimulatedDeviceType.Decoder)
