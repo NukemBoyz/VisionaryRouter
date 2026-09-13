@@ -19,8 +19,13 @@ configuration commands.
 
 ## Status
 
-Built and working against a simulator. **Not yet validated against real hardware** — see
+Built and working against a simulator. Basic query, route, and `STREAM.HOST` verification
+were successfully exercised on E4200/D4200 hardware running firmware 2.3.152 on 2026-09-13.
+This is an initial protocol check, not full production validation — see
 [Before trusting this on real equipment](#before-trusting-this-on-real-equipment).
+
+For the exact implementation state, verification results, remaining work, and continuation
+instructions, see [HANDOFF.md](HANDOFF.md).
 
 ## Running it
 
@@ -38,6 +43,9 @@ The server opens `http://localhost:8088` in your browser on start. The simulator
 eight fake endpoints on `127.0.0.10`–`127.0.0.24`, which you can add through the Devices tab.
 Two of them misbehave deliberately: `127.0.0.23` never answers, and `127.0.0.24` accepts route
 commands and then ignores them.
+
+Use the **Fullscreen** button in the header for a dedicated control surface. The routing
+tiles automatically reflow and resize for desktop, landscape/portrait tablets, and phones.
 
 To reach the UI from a tablet or another PC, set `Router:ListenOnAllInterfaces` to `true`.
 It is off by default — serving a control surface to the whole network should be a decision
@@ -60,6 +68,10 @@ One-to-many is the same command sent to each decoder independently. There is no 
 code path for it, and no group state on the endpoints — a group of four is four commands.
 That is also why a group route reports per-decoder results rather than one overall verdict:
 one powered-down display must not make three working ones look like a failure.
+
+Each encoder card also exposes **HDMI 1**, **HDMI 2**, and **USB-C** input buttons. The
+application sends the input command to the encoder, reads `STREAM.VIDEO` back, and only marks
+the button active after the encoder reports the requested input.
 
 ## What it will not do
 
@@ -205,9 +217,9 @@ Diagnostics tab lists them all with their addresses.
 
 ## Not built yet
 
-Subnet scan and multicast discovery (`226.0.0.19`), decoder groups, presets, the matrix view,
-and Windows Service packaging. Manual device entry works first on purpose: it is the part
-that behaves the same on every customer network.
+Multicast discovery (`226.0.0.19`), decoder groups, presets, the matrix view, and Windows
+Service packaging. The Devices page now has an explicit IPv4 `/24` scan that finds and adds
+Visionary endpoints without duplicating devices already in the database.
 
 ## Reference
 

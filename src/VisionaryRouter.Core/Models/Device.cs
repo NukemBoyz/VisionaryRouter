@@ -19,6 +19,7 @@ public sealed class Device
     /// </summary>
     public int ControlPort { get; set; } = 8000;
     public bool Enabled { get; set; } = true;
+    public int SortOrder { get; set; }
 
     // Read back from the endpoint during a probe. Null until we have talked to it.
     public string? UnitId { get; set; }
@@ -29,8 +30,15 @@ public sealed class Device
     public string? FirmwareDate { get; set; }
     public string? StreamMode { get; set; }
 
+    /// <summary>Encoders only: physical input currently feeding the AV stream.</summary>
+    public string? VideoInput { get; set; }
+    public bool? VideoSignalPresent { get; set; }
+    public string? VideoTiming { get; set; }
+
     /// <summary>Decoders only: the encoder IP this decoder reports it is following.</summary>
     public string? CurrentEncoderIp { get; set; }
+    public bool? StreamConnected { get; set; }
+    public bool RouteCleared { get; set; }
 
     /// <summary>
     /// Decoders only: the encoder this application last sent this decoder to.

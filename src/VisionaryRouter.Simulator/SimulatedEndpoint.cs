@@ -23,6 +23,8 @@ public sealed class SimulatedEndpoint
 
     /// <summary>The encoder this decoder is currently following. Meaningless on an encoder.</summary>
     private string _streamHost;
+    private string _streamVideo = "HDMI1";
+    private bool _streamConnected;
 
     /// <summary>
     /// A switch that has been accepted but not yet applied. Real endpoints answer
@@ -38,6 +40,7 @@ public sealed class SimulatedEndpoint
         _config = config;
         _log = log;
         _streamHost = config.InitialStreamHost ?? string.Empty;
+        _streamConnected = !string.IsNullOrWhiteSpace(_streamHost);
     }
 
     public SimulatedDeviceConfig Config => _config;
@@ -111,6 +114,13 @@ public sealed class SimulatedEndpoint
                    $"&{VisionaryKeys.ApiStatus}=SUCCESS";
         }
 
+        if (command.Values.ContainsKey("QUERY.VIDEO_TIMING"))
+        {
+            return _config.Type == SimulatedDeviceType.Encoder
+                ? $"&{VisionaryKeys.VideoTiming}=Timing Table: [1920]X[1080] [60]Hz&QUERY.VIDEO_TIMING=OK&{VisionaryKeys.ApiStatus}=SUCCESS_QUERY"
+                : $"&{VisionaryKeys.VideoTiming}=Not Available&QUERY.VIDEO_TIMING=OK&{VisionaryKeys.ApiStatus}=SUCCESS_QUERY";
+        }
+
         if (command.Values.ContainsKey("UNIT.FU"))
         {
             _log($"{_config.Name} *** front panel LEDs flashing for 10 seconds ***");
@@ -120,6 +130,36 @@ public sealed class SimulatedEndpoint
         if (command.TryGet(VisionaryKeys.StreamHost, out var requestedHost))
         {
             return HandleRoute(requestedHost);
+        }
+
+        if (command.TryGet(VisionaryKeys.StreamConnect, out var connect) &&
+            string.Equals(connect, "FALSE", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_config.Type != SimulatedDeviceType.Decoder)
+                return $"&{VisionaryKeys.ApiStatus}=FAILURE_NOT_A_DECODER";
+            lock (_stateLock)
+            {
+                _streamHost = string.Empty;
+                _streamConnected = false;
+                _pendingStreamHost = null;
+            }
+            return $"&{VisionaryKeys.StreamConnect}=FALSE&{VisionaryKeys.ApiStatus}=SUCCESS";
+        }
+
+        if (command.TryGet(VisionaryKeys.StreamVideo, out var requestedInput))
+        {
+            if (_config.Type != SimulatedDeviceType.Encoder)
+            {
+                return $"&{VisionaryKeys.ApiStatus}=FAILURE_NOT_AN_ENCODER";
+            }
+
+            if (!VisionaryCommand.VideoInputs.Contains(requestedInput, StringComparer.Ordinal))
+            {
+                return $"&{VisionaryKeys.ApiStatus}=FAILURE_INVALID_VALUE";
+            }
+
+            _streamVideo = requestedInput;
+            return $"&{VisionaryKeys.StreamConnect}=queue_next_switch&{VisionaryKeys.ApiStatus}=SUCCESS";
         }
 
         return $"&{VisionaryKeys.ApiStatus}=FAILURE_UNKNOWN_COMMAND";
@@ -146,6 +186,7 @@ public sealed class SimulatedEndpoint
         lock (_stateLock)
         {
             _pendingStreamHost = requestedHost;
+            _streamConnected = true;
             _pendingAppliesAtUtc = DateTime.UtcNow + _config.SwitchDelay;
         }
 
@@ -168,7 +209,9 @@ public sealed class SimulatedEndpoint
     private string? ReadKey(string key) => key switch
     {
         VisionaryKeys.StreamHost => CurrentStreamHost(),
+        VisionaryKeys.StreamConnect when _config.Type == SimulatedDeviceType.Decoder => _streamConnected.ToString().ToUpperInvariant(),
         VisionaryKeys.StreamMode => _config.StreamMode,
+        VisionaryKeys.StreamVideo when _config.Type == SimulatedDeviceType.Encoder => _streamVideo,
         VisionaryKeys.UnitId => _config.UnitId,
         VisionaryKeys.UnitModel => _config.Model,
         VisionaryKeys.UnitSerial => _config.Serial,
@@ -202,6 +245,10 @@ public sealed class SimulatedEndpoint
         if (_config.Type == SimulatedDeviceType.Decoder)
         {
             fields.Add($"{VisionaryKeys.StreamHost}={CurrentStreamHost()}");
+        }
+        else
+        {
+            fields.Add($"{VisionaryKeys.StreamVideo}={_streamVideo}");
         }
 
         fields.Add($"{VisionaryKeys.ApiStatus}=SUCCESS_QUERY");

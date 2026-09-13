@@ -31,6 +31,7 @@ The documented API multicast address is `226.0.0.19`.
 | Full config dump | `CMD=START&UNIT.ID=ALL&QUERY.ALL=TRUE&CMD=END` |
 | Read current source | `CMD=START&UNIT.ID=ALL&QUERY.KEY=STREAM.HOST&CMD=END` |
 | Route a decoder | `CMD=START&UNIT.ID=ALL&STREAM.HOST=<encoder-ip>&VW.ACTIVE=FALSE&STREAM.CONNECT=TRUE&CMD=END` |
+| Select encoder input | `CMD=START&UNIT.ID=ALL&STREAM.VIDEO=<HDMI1\|HDMI2\|USB-C>&STREAM.CONNECT=TRUE&CMD=END` |
 | Identify (flash LEDs ~10s) | `CMD=START&UNIT.ID=ALL&UNIT.FU=TRUE&CMD=END` |
 
 A successful switch answers something like:
@@ -61,6 +62,13 @@ one.
 `API.STATUS` has several success variants (`SUCCESS`, `SUCCESS_QUERY`, …), so success is
 matched on the `SUCCESS` prefix rather than an exact value.
 
+On 2026-09-13, D4200 firmware 2.3.152 returned `API.STATUS=SUCCESS_QUERY_X` for a successful
+`QUERY.KEY=STREAM.HOST`. The existing prefix match handled this correctly.
+
+E4200 and DuetE-2 documentation defines `STREAM.VIDEO` values `AUTO`, `HDMI1`, `HDMI2`, and
+`USB-C`. The operator UI intentionally exposes the three fixed physical inputs and verifies a
+selection by querying `STREAM.VIDEO` after switching.
+
 ## Volatility
 
 API changes are volatile unless explicitly saved. For routing that is exactly what we want,
@@ -85,10 +93,19 @@ routing model, `STREAM.CONNECT`, `QUERY.KEY`, group routing by commanding each d
 status and query behaviour, and the identify command. The 5-series uses the same API and
 port as the 4-series.
 
-**Not yet confirmed on hardware.** Everything above comes from documentation. The simulator
-in this repository was written from the same documentation, so it cannot independently
-validate any of it — it agrees with our assumptions by construction. The first real test is
-the probe tool against one encoder and one decoder.
+**Partially confirmed on hardware.** On 2026-09-13, the probe successfully queried one E4200
+encoder and two D4200 decoders running firmware 2.3.152. Routing encoder `192.168.0.16` to
+decoders `192.168.0.18` and `192.168.0.19` was acknowledged by both decoders, and both then
+reported `STREAM.HOST=192.168.0.16`. Visual confirmation and broader acceptance testing are
+still required.
+
+The simulator in this repository was written from the same documentation as the application,
+so it cannot independently validate protocol assumptions — it agrees with them by construction.
+
+**Sensitive query output.** The tested E4200/D4200 firmware includes a `UNIT.PASSWORD` value
+in `QUERY.ALL`. The probe currently prints the raw response and the UDP transport can log raw
+responses at Debug level. Redact password/credential fields before distributing logs or using
+full-query output in a production UI.
 
 **Worth obtaining:** Visionary makes the full API available to qualified system integrators
 through their support. The public 4-series specification is enough to build routing, but get

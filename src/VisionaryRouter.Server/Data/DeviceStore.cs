@@ -59,6 +59,9 @@ public sealed class DeviceStore
         // CREATE TABLE IF NOT EXISTS does nothing to a database that already exists, so
         // columns added after the first release have to be applied separately.
         AddColumnIfMissing(connection, "Devices", "AssignedEncoderIp", "TEXT NULL");
+        AddColumnIfMissing(connection, "Devices", "VideoInput", "TEXT NULL");
+        AddColumnIfMissing(connection, "Devices", "SortOrder", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "Devices", "RouteCleared", "INTEGER NOT NULL DEFAULT 0");
     }
 
     private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string definition)
@@ -86,7 +89,7 @@ public sealed class DeviceStore
             """
             SELECT Id, Name, Type, IpAddress, ControlPort, Enabled,
                    UnitId, Model, SerialNumber, MacAddress, Firmware, FirmwareDate, StreamMode,
-                   CreatedUtc, UpdatedUtc, AssignedEncoderIp
+                   CreatedUtc, UpdatedUtc, AssignedEncoderIp, VideoInput, SortOrder, RouteCleared
             FROM Devices
             ORDER BY Name
             """;
@@ -118,6 +121,9 @@ public sealed class DeviceStore
                 // survives a restart. What the decoder is actually showing is not: that is
                 // rediscovered from the network.
                 AssignedEncoderIp = reader.IsDBNull(15) ? null : reader.GetString(15),
+                VideoInput = reader.IsDBNull(16) ? null : reader.GetString(16),
+                SortOrder = reader.GetInt32(17),
+                RouteCleared = reader.GetInt32(18) != 0,
                 OnlineState = OnlineState.Unknown,
                 CurrentEncoderIp = null
             });
@@ -136,16 +142,17 @@ public sealed class DeviceStore
             INSERT INTO Devices
                 (Id, Name, Type, IpAddress, ControlPort, Enabled,
                  UnitId, Model, SerialNumber, MacAddress, Firmware, FirmwareDate, StreamMode,
-                 CreatedUtc, UpdatedUtc, AssignedEncoderIp)
+                 CreatedUtc, UpdatedUtc, AssignedEncoderIp, VideoInput, SortOrder, RouteCleared)
             VALUES
                 ($id, $name, $type, $ip, $port, $enabled,
                  $unitId, $model, $serial, $mac, $firmware, $firmwareDate, $streamMode,
-                 $created, $updated, $assigned)
+                 $created, $updated, $assigned, $videoInput, $sortOrder, $routeCleared)
             ON CONFLICT(Id) DO UPDATE SET
                 Name = $name, Type = $type, IpAddress = $ip, ControlPort = $port, Enabled = $enabled,
                 UnitId = $unitId, Model = $model, SerialNumber = $serial, MacAddress = $mac,
                 Firmware = $firmware, FirmwareDate = $firmwareDate, StreamMode = $streamMode,
-                UpdatedUtc = $updated, AssignedEncoderIp = $assigned
+                UpdatedUtc = $updated, AssignedEncoderIp = $assigned, VideoInput = $videoInput,
+                SortOrder = $sortOrder, RouteCleared = $routeCleared
             """;
 
         command.Parameters.AddWithValue("$id", device.Id.ToString());
@@ -164,6 +171,9 @@ public sealed class DeviceStore
         command.Parameters.AddWithValue("$created", device.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updated", DateTime.UtcNow.ToString("O"));
         command.Parameters.AddWithValue("$assigned", (object?)device.AssignedEncoderIp ?? DBNull.Value);
+        command.Parameters.AddWithValue("$videoInput", (object?)device.VideoInput ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sortOrder", device.SortOrder);
+        command.Parameters.AddWithValue("$routeCleared", device.RouteCleared ? 1 : 0);
 
         command.ExecuteNonQuery();
     }
@@ -175,6 +185,27 @@ public sealed class DeviceStore
         using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM Devices WHERE Id = $id";
         command.Parameters.AddWithValue("$id", id.ToString());
+        command.ExecuteNonQuery();
+    }
+
+    public string? GetSetting(string key)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT Value FROM Settings WHERE Key = $key";
+        command.Parameters.AddWithValue("$key", key);
+        return command.ExecuteScalar() as string;
+    }
+
+    public void SetSetting(string key, string value)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "INSERT INTO Settings (Key, Value) VALUES ($key, $value) " +
+            "ON CONFLICT(Key) DO UPDATE SET Value = $value";
+        command.Parameters.AddWithValue("$key", key);
+        command.Parameters.AddWithValue("$value", value);
         command.ExecuteNonQuery();
     }
 

@@ -6,7 +6,8 @@ public enum RouteStatus
     Switching = 1,
     Verified = 2,
     Failed = 3,
-    Offline = 4
+    Offline = 4,
+    Accepted = 5
 }
 
 /// <summary>Outcome of routing one decoder.</summary>
@@ -25,7 +26,7 @@ public sealed record RouteResult
     public string? ReportedEncoderIp { get; init; }
     public string? Error { get; init; }
 
-    public bool Success => Status == RouteStatus.Verified;
+    public bool Success => Status is RouteStatus.Verified or RouteStatus.Accepted;
 }
 
 /// <summary>

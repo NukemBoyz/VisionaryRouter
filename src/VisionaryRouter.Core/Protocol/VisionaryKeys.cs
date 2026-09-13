@@ -13,6 +13,8 @@ public static class VisionaryKeys
 
     public const string StreamMode = "STREAM.MODE";
     public const string StreamConnect = "STREAM.CONNECT";
+    public const string VideoTiming = "VIDEO.TIMING";
+    public const string StreamVideo = "STREAM.VIDEO";
 
     public const string UnitId = "UNIT.ID";
     public const string UnitModel = "UNIT.MODEL";

@@ -28,7 +28,7 @@ public sealed class DeviceRegistry
         }
     }
 
-    public IReadOnlyList<Device> All() => _devices.Values.OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    public IReadOnlyList<Device> All() => _devices.Values.OrderBy(d => d.SortOrder).ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
     public IReadOnlyList<Device> Encoders() => All().Where(d => d.Type == DeviceType.Encoder).ToList();
 
@@ -72,8 +72,27 @@ public sealed class DeviceRegistry
 
     public void Add(Device device)
     {
+        if (_devices.Count > 0 && device.SortOrder == 0)
+        {
+            device.SortOrder = _devices.Values.Max(d => d.SortOrder) + 1;
+        }
         _devices[device.Id] = device;
         _store.Upsert(device);
+    }
+
+
+    public bool Reorder(DeviceType type, IReadOnlyList<Guid> ids)
+    {
+        var expected = _devices.Values.Where(d => d.Type == type).Select(d => d.Id).ToHashSet();
+        if (ids.Count != expected.Count || !ids.ToHashSet().SetEquals(expected)) return false;
+
+        for (var index = 0; index < ids.Count; index++)
+        {
+            var device = _devices[ids[index]];
+            device.SortOrder = index;
+            Save(device);
+        }
+        return true;
     }
 
     /// <summary>Persists configuration changes made to a device already in the registry.</summary>

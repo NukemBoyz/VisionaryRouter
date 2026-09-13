@@ -30,11 +30,44 @@ public class CommandBuilderTests
     }
 
     [Fact]
+    public void Disconnect_produces_the_documented_stream_command()
+    {
+        Assert.Equal(
+            "CMD=START&UNIT.ID=ALL&STREAM.CONNECT=FALSE&CMD=END",
+            VisionaryCommand.Disconnect());
+    }
+
+    [Fact]
+    public void Video_timing_query_produces_the_documented_command()
+    {
+        Assert.Equal(
+            "CMD=START&UNIT.ID=ALL&QUERY.VIDEO_TIMING=TRUE&CMD=END",
+            VisionaryCommand.QueryVideoTiming());
+    }
+
+    [Fact]
     public void Identify_produces_the_documented_command()
     {
         Assert.Equal(
             "CMD=START&UNIT.ID=ALL&UNIT.FU=TRUE&CMD=END",
             VisionaryCommand.Identify());
+    }
+
+    [Theory]
+    [InlineData("HDMI1")]
+    [InlineData("HDMI2")]
+    [InlineData("USB-C")]
+    public void Video_input_produces_the_documented_command(string input)
+    {
+        Assert.Equal(
+            $"CMD=START&UNIT.ID=ALL&STREAM.VIDEO={input}&STREAM.CONNECT=TRUE&CMD=END",
+            VisionaryCommand.SelectVideoInput(input));
+    }
+
+    [Fact]
+    public void Video_input_rejects_an_unknown_value()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => VisionaryCommand.SelectVideoInput("DisplayPort"));
     }
 
     [Theory]

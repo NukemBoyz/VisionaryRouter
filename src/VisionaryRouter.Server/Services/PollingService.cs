@@ -112,10 +112,25 @@ public sealed class PollingService : BackgroundService
             {
                 var previousSource = decoder.CurrentEncoderIp;
                 var previousState = decoder.OnlineState;
+                var previousConnected = decoder.StreamConnected;
 
-                var current = await _client.ReadCurrentSourceAsync(decoder, cancellationToken);
+                bool? connected;
+                string? current;
+                if (decoder.RouteCleared)
+                {
+                    // Cleared 4-Series decoders retain their previous STREAM.HOST and expose
+                    // no readable connection key, so a health probe must not resurrect it.
+                    connected = false;
+                    current = null;
+                    await _client.PingAsync(decoder, cancellationToken);
+                }
+                else
+                {
+                    connected = await _client.ReadStreamConnectedAsync(decoder, cancellationToken);
+                    current = connected == false ? null : await _client.ReadCurrentSourceAsync(decoder, cancellationToken);
+                }
 
-                if (current != previousSource || decoder.OnlineState != previousState)
+                if (current != previousSource || decoder.OnlineState != previousState || connected != previousConnected)
                 {
                     if (current != previousSource && previousSource is not null)
                     {
@@ -158,12 +173,29 @@ public sealed class PollingService : BackgroundService
             try
             {
                 var previousState = device.OnlineState;
-                await _client.PingAsync(device, cancellationToken);
+                var previousInput = device.VideoInput;
+                var previousSignal = device.VideoSignalPresent;
+                var previousTiming = device.VideoTiming;
 
-                if (device.OnlineState != previousState)
+                if (device.Type == DeviceType.Encoder)
+                {
+                    await _client.ReadVideoInputAsync(device, cancellationToken);
+                    if (device.OnlineState == OnlineState.Online)
+                    {
+                        await _client.ReadVideoSignalAsync(device, cancellationToken);
+                    }
+                }
+                else
+                {
+                    await _client.PingAsync(device, cancellationToken);
+                }
+
+                if (device.OnlineState != previousState || device.VideoInput != previousInput ||
+                    device.VideoSignalPresent != previousSignal || device.VideoTiming != previousTiming)
                 {
                     _logger.LogInformation(
-                        "Device {Device} is now {State}", device.Name, device.OnlineState);
+                        "Device {Device} is now {State}; input {Input}",
+                        device.Name, device.OnlineState, device.VideoInput ?? "unknown");
                     changed = true;
                 }
             }

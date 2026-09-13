@@ -26,6 +26,8 @@ public static class VisionaryCommand
     /// </summary>
     private static readonly string[] ForbiddenKeys = ["SAVE", "UNIT.SAVE", "UNIT.RESET", "UNIT.REBOOT"];
 
+    public static readonly IReadOnlyList<string> VideoInputs = ["HDMI1", "HDMI2", "USB-C"];
+
     /// <summary>Lightweight liveness/status probe.</summary>
     public static string StatusQuery() => Build("UNIT.ID=ALL", "QUERY.STATUS=TRUE");
 
@@ -42,6 +44,8 @@ public static class VisionaryCommand
     /// <summary>Reads the encoder a decoder is currently following.</summary>
     public static string QueryCurrentRoute() => QueryKey(VisionaryKeys.StreamHost);
 
+    public static string QueryVideoTiming() => Build("UNIT.ID=ALL", "QUERY.VIDEO_TIMING=TRUE");
+
     /// <summary>
     /// Points a decoder at an encoder. Sent to the *decoder*, not the encoder:
     /// each decoder is told which source to receive.
@@ -53,6 +57,27 @@ public static class VisionaryCommand
             "UNIT.ID=ALL",
             $"{VisionaryKeys.StreamHost}={encoderIp}",
             "VW.ACTIVE=FALSE",
+            "STREAM.CONNECT=TRUE");
+    }
+
+    /// <summary>Disconnects a decoder from its current video stream.</summary>
+    public static string Disconnect() => Build("UNIT.ID=ALL", "STREAM.CONNECT=FALSE");
+
+    /// <summary>Selects which physical encoder input is sent into the AV stream.</summary>
+    public static string SelectVideoInput(string input)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(input);
+
+        var normalized = input.Trim().ToUpperInvariant();
+        if (!VideoInputs.Contains(normalized, StringComparer.Ordinal))
+        {
+            throw new ArgumentOutOfRangeException(nameof(input), input,
+                $"Video input must be one of: {string.Join(", ", VideoInputs)}");
+        }
+
+        return Build(
+            "UNIT.ID=ALL",
+            $"{VisionaryKeys.StreamVideo}={normalized}",
             "STREAM.CONNECT=TRUE");
     }
 

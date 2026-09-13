@@ -97,6 +97,25 @@ public sealed class VisionaryDeviceClient
         return host;
     }
 
+    public async Task<bool?> ReadStreamConnectedAsync(Device decoder, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetEndpoint(decoder, out var endpoint, out _)) return null;
+        var result = await _transport.QueryAsync(
+            endpoint, VisionaryCommand.QueryKey(VisionaryKeys.StreamConnect), cancellationToken);
+        if (!result.Success || result.Response is null)
+        {
+            MarkOffline(decoder, result.Error);
+            return null;
+        }
+
+        var raw = result.Response.Get(VisionaryKeys.StreamConnect);
+        if (!bool.TryParse(raw, out var connected)) return null;
+        decoder.StreamConnected = connected;
+        if (!connected) decoder.CurrentEncoderIp = null;
+        MarkOnline(decoder);
+        return connected;
+    }
+
     /// <summary>
     /// Sends the routing command to a decoder. Does not verify - verification is the routing
     /// service's job, because it has to happen after a settling delay.
@@ -116,6 +135,90 @@ public sealed class VisionaryDeviceClient
             decoder.Name, decoder.IpAddress, encoderIp);
 
         return await _transport.QueryAsync(endpoint, VisionaryCommand.Route(encoderIp), cancellationToken);
+    }
+
+    public async Task<VisionaryQueryResult> DisconnectAsync(
+        Device decoder,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetEndpoint(decoder, out var endpoint, out var failure))
+        {
+            return failure;
+        }
+
+        _logger.LogInformation("CLEAR ROUTE REQUEST decoder {Decoder} [{DecoderIp}]", decoder.Name, decoder.IpAddress);
+        return await _transport.QueryAsync(endpoint, VisionaryCommand.Disconnect(), cancellationToken);
+    }
+
+    /// <summary>Reads the physical video input currently selected on an encoder.</summary>
+    public async Task<string?> ReadVideoInputAsync(Device encoder, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetEndpoint(encoder, out var endpoint, out _))
+        {
+            return null;
+        }
+
+        var result = await _transport.QueryAsync(
+            endpoint,
+            VisionaryCommand.QueryKey(VisionaryKeys.StreamVideo),
+            cancellationToken);
+
+        if (!result.Success || result.Response is null)
+        {
+            MarkOffline(encoder, result.Error);
+            return null;
+        }
+
+        var input = result.Response.Get(VisionaryKeys.StreamVideo);
+        encoder.VideoInput = input;
+        MarkOnline(encoder);
+        return input;
+    }
+
+    public async Task<bool?> ReadVideoSignalAsync(Device encoder, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetEndpoint(encoder, out var endpoint, out _))
+        {
+            return null;
+        }
+
+        var result = await _transport.QueryAsync(endpoint, VisionaryCommand.QueryVideoTiming(), cancellationToken);
+        if (!result.Success || result.Response is null)
+        {
+            MarkOffline(encoder, result.Error);
+            return null;
+        }
+
+        var timing = result.Response.Get(VisionaryKeys.VideoTiming) ?? result.Response.Raw;
+        encoder.VideoTiming = SummarizeTiming(timing);
+        encoder.VideoSignalPresent = !timing.Contains("Not Available", StringComparison.OrdinalIgnoreCase);
+        MarkOnline(encoder);
+        return encoder.VideoSignalPresent;
+    }
+
+    private static string SummarizeTiming(string timing)
+    {
+        if (timing.Contains("Not Available", StringComparison.OrdinalIgnoreCase)) return "No signal";
+        var match = System.Text.RegularExpressions.Regex.Match(timing, @"\[(\d+)\]X\[(\d+)\].*?\[(\d+)\]Hz");
+        return match.Success ? $"{match.Groups[1].Value}×{match.Groups[2].Value} {match.Groups[3].Value}Hz" : "Signal detected";
+    }
+
+    /// <summary>Sends an operational encoder input switch. Verification is done by the API layer.</summary>
+    public async Task<VisionaryQueryResult> SelectVideoInputAsync(
+        Device encoder,
+        string input,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetEndpoint(encoder, out var endpoint, out var failure))
+        {
+            return failure;
+        }
+
+        _logger.LogInformation(
+            "VIDEO INPUT REQUEST encoder {Encoder} [{EncoderIp}] -> {Input}",
+            encoder.Name, encoder.IpAddress, input);
+
+        return await _transport.QueryAsync(endpoint, VisionaryCommand.SelectVideoInput(input), cancellationToken);
     }
 
     /// <summary>Flashes the endpoint's front-panel LEDs so an installer can find it in a rack.</summary>
@@ -167,6 +270,7 @@ public sealed class VisionaryDeviceClient
         device.Firmware = response.Get(VisionaryKeys.UnitFirmware) ?? device.Firmware;
         device.FirmwareDate = response.Get(VisionaryKeys.UnitFirmwareDate) ?? device.FirmwareDate;
         device.StreamMode = response.Get(VisionaryKeys.StreamMode) ?? device.StreamMode;
+        device.VideoInput = response.Get(VisionaryKeys.StreamVideo) ?? device.VideoInput;
 
         if (response.TryGet(VisionaryKeys.StreamHost, out var streamHost))
         {

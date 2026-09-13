@@ -17,6 +17,11 @@
             <button class="tab" data-view="devices">Devices</button>
             <button class="tab" data-view="diagnostics">Diagnostics</button>
         </nav>
+        <button class="fullscreen-btn" id="fullscreen-btn" type="button"
+                aria-label="Enter fullscreen" aria-pressed="false" title="Enter fullscreen">
+            <span class="fullscreen-icon" aria-hidden="true">⛶</span>
+            <span class="fullscreen-label">Fullscreen</span>
+        </button>
         <div class="connection" id="connection">
             <span class="dot"></span><span class="connection-label">connecting</span>
         </div>
@@ -38,11 +43,27 @@
                     <div class="panel-head">
                         <h2>Destinations</h2>
                         <div class="panel-actions">
+                            <label class="filter-toggle"><input type="checkbox" id="hide-disabled" checked> Hide disabled</label>
+                            <label class="filter-toggle"><input type="checkbox" id="hide-offline"> Hide offline</label>
                             <button class="btn btn-quiet" id="select-all">All</button>
                             <button class="btn btn-quiet" id="select-none">None</button>
+                            <button class="btn btn-quiet btn-danger" id="clear-all-routes">Clear all</button>
                         </div>
                     </div>
                     <div class="list" id="destinations"></div>
+                </div>
+            </div>
+
+            <div class="panel routing-tools">
+                <div class="quick-tool">
+                    <div><strong>Decoder groups</strong><span>Select a saved set of destinations.</span></div>
+                    <div class="chip-row" id="group-list"></div>
+                    <button class="btn btn-quiet" id="save-group">Save selected</button>
+                </div>
+                <div class="quick-tool">
+                    <div><strong>Presets</strong><span>Save or recall the routes currently on the wall.</span></div>
+                    <div class="chip-row" id="preset-list"></div>
+                    <button class="btn btn-quiet" id="save-preset">Save current</button>
                 </div>
             </div>
 
@@ -89,6 +110,19 @@
                     the endpoint; a device that does not answer cannot be detected and will need its
                     type set by hand.
                 </p>
+                <div class="scan-bar">
+                    <div>
+                        <strong>Find devices</strong>
+                        <span>Scan one local /24 network and add confirmed Visionary endpoints.</span>
+                    </div>
+                    <label class="scan-subnet">
+                        <span>Subnet</span>
+                        <input type="text" id="scan-subnet" value="192.168.0.0/24"
+                               placeholder="192.168.0.0/24" autocomplete="off">
+                    </label>
+                    <button class="btn btn-primary" id="scan-devices" type="button">Scan &amp; add</button>
+                </div>
+                <div class="scan-status" id="scan-status" hidden></div>
             </div>
 
             <div class="panel">

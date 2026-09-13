@@ -17,6 +17,14 @@ var builder = WebApplication.CreateBuilder(args);
 var webPort = builder.Configuration.GetValue("Router:WebPort", 8088);
 var listenOnAllInterfaces = builder.Configuration.GetValue("Router:ListenOnAllInterfaces", false);
 var openBrowser = builder.Configuration.GetValue("Router:OpenBrowserOnStart", true);
+var adminPassword = builder.Configuration["Router:AdminPassword"];
+
+if (listenOnAllInterfaces && string.IsNullOrWhiteSpace(adminPassword))
+{
+    throw new InvalidOperationException(
+        "Router:ListenOnAllInterfaces requires Router:AdminPassword. " +
+        "Set the Router__AdminPassword environment variable before exposing the UI to the LAN.");
+}
 
 // Loopback by default. Serving the UI to the whole network is useful for a wall tablet, but
 // that should be a decision someone made, not something that happens because the app ran.
@@ -44,6 +52,8 @@ builder.Services.AddSingleton<RoutingService>();
 builder.Services.AddSingleton(new DeviceStore(databasePath));
 builder.Services.AddSingleton<DeviceRegistry>();
 builder.Services.AddSingleton<EventStream>();
+builder.Services.AddSingleton<DiscoveryService>();
+builder.Services.AddSingleton<RoutingConfigurationStore>();
 builder.Services.AddHostedService<PollingService>();
 
 var app = builder.Build();
@@ -63,6 +73,11 @@ registry.Load();
 
 logger.LogInformation("Database: {Path}", databasePath);
 logger.LogInformation("Loaded {Count} device(s)", registry.All().Count);
+
+if (!string.IsNullOrWhiteSpace(adminPassword))
+{
+    app.UseMiddleware<BasicAuthenticationMiddleware>(adminPassword);
+}
 
 app.UseDefaultFiles();
 
@@ -211,6 +226,103 @@ app.MapPost("/api/devices/{id:guid}/identify", async (
     return Results.Ok(new { success = result.Success, error = result.Error, raw = result.Response?.Raw });
 });
 
+app.MapPost("/api/devices/{id:guid}/video-input", async (
+    Guid id,
+    VideoInputRequest request,
+    DeviceRegistry devices,
+    VisionaryDeviceClient client,
+    EventStream events,
+    HttpContext context) =>
+{
+    var encoder = devices.Find(id);
+    if (encoder is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (encoder.Type != DeviceType.Encoder)
+    {
+        return Results.BadRequest(new { error = $"{encoder.Name} is not an encoder" });
+    }
+
+    string input;
+    try
+    {
+        input = (request.Input ?? string.Empty).Trim().ToUpperInvariant();
+        _ = VisionaryCommand.SelectVideoInput(input);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+
+    var sent = await client.SelectVideoInputAsync(encoder, input, context.RequestAborted);
+    if (!sent.Success)
+    {
+        return Results.Ok(new { success = false, verified = false, input, error = sent.Error });
+    }
+
+    await Task.Delay(TimeSpan.FromMilliseconds(300), context.RequestAborted);
+
+    string? reported = null;
+    for (var attempt = 0; attempt < 3; attempt++)
+    {
+        reported = await client.ReadVideoInputAsync(encoder, context.RequestAborted);
+        if (string.Equals(reported, input, StringComparison.Ordinal))
+        {
+            break;
+        }
+
+        if (attempt < 2)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(300), context.RequestAborted);
+        }
+    }
+
+    var verified = string.Equals(reported, input, StringComparison.Ordinal);
+    devices.Save(encoder);
+    events.Publish("devices", DeviceView.From(devices));
+
+    return Results.Ok(new
+    {
+        success = verified,
+        verified,
+        input,
+        reportedInput = reported,
+        error = verified ? null : $"Encoder reports {reported ?? "no input"}; expected {input}"
+    });
+});
+
+app.MapPost("/api/discovery/scan", async (
+    DiscoveryRequest request,
+    DiscoveryService discovery,
+    DeviceRegistry devices,
+    EventStream events,
+    HttpContext context) =>
+{
+    try
+    {
+        var result = await discovery.ScanAndAddAsync(request.Subnet, context.RequestAborted);
+        events.Publish("devices", DeviceView.From(devices));
+        return Results.Ok(result);
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+});
+
+app.MapPost("/api/devices/order", (DeviceOrderRequest request, DeviceRegistry devices, EventStream events) =>
+{
+    var type = ParseType(request.Type);
+    if (type == DeviceType.Unknown || !devices.Reorder(type, request.DeviceIds))
+    {
+        return Results.BadRequest(new { error = "Order must contain every device of the selected type exactly once" });
+    }
+    events.Publish("devices", DeviceView.From(devices));
+    return Results.NoContent();
+});
+
 // ---------------------------------------------------------------------------
 // Routing
 // ---------------------------------------------------------------------------
@@ -300,6 +412,72 @@ app.MapPost("/api/routes", async (
     });
 });
 
+app.MapPost("/api/devices/{id:guid}/clear-route", async (
+    Guid id, DeviceRegistry devices, RoutingService routing, EventStream events, HttpContext context) =>
+{
+    var decoder = devices.Find(id);
+    if (decoder is null) return Results.NotFound();
+    if (decoder.Type != DeviceType.Decoder) return Results.BadRequest(new { error = $"{decoder.Name} is not a decoder" });
+    var result = await routing.ClearAsync(decoder, context.RequestAborted);
+    devices.Save(decoder);
+    events.Publish("devices", DeviceView.From(devices));
+    return Results.Ok(result);
+});
+
+app.MapPost("/api/routes/clear", async (
+    DeviceRegistry devices, RoutingService routing, EventStream events, HttpContext context) =>
+{
+    var targets = devices.Decoders().Where(d => d.Enabled).ToList();
+    var results = await Task.WhenAll(targets.Select(d => routing.ClearAsync(d, context.RequestAborted)));
+    foreach (var decoder in targets) devices.Save(decoder);
+    events.Publish("devices", DeviceView.From(devices));
+    return Results.Ok(new
+    {
+        successCount = results.Count(r => r.Success), failureCount = results.Count(r => !r.Success), results
+    });
+});
+
+app.MapGet("/api/groups", (RoutingConfigurationStore configurations) => Results.Ok(configurations.Groups()));
+app.MapPost("/api/groups", (NamedDecoderSetRequest request, DeviceRegistry devices, RoutingConfigurationStore configurations) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name) || request.DecoderIds.Length == 0)
+        return Results.BadRequest(new { error = "A group needs a name and at least one decoder" });
+    if (request.DecoderIds.Any(id => devices.Find(id)?.Type != DeviceType.Decoder))
+        return Results.BadRequest(new { error = "Group contains an unknown decoder" });
+    return Results.Ok(configurations.SaveGroup(request.Name, request.DecoderIds));
+});
+app.MapDelete("/api/groups/{id:guid}", (Guid id, RoutingConfigurationStore configurations) =>
+    configurations.DeleteGroup(id) ? Results.NoContent() : Results.NotFound());
+
+app.MapGet("/api/presets", (RoutingConfigurationStore configurations) => Results.Ok(configurations.Presets()));
+app.MapPost("/api/presets", (PresetRequest request, DeviceRegistry devices, RoutingConfigurationStore configurations) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name) || request.Routes.Length == 0)
+        return Results.BadRequest(new { error = "A preset needs a name and at least one route" });
+    if (request.Routes.Any(r => devices.Find(r.DecoderId)?.Type != DeviceType.Decoder || devices.Find(r.EncoderId)?.Type != DeviceType.Encoder))
+        return Results.BadRequest(new { error = "Preset contains an unknown encoder or decoder" });
+    return Results.Ok(configurations.SavePreset(request.Name, request.Routes));
+});
+app.MapDelete("/api/presets/{id:guid}", (Guid id, RoutingConfigurationStore configurations) =>
+    configurations.DeletePreset(id) ? Results.NoContent() : Results.NotFound());
+app.MapPost("/api/presets/{id:guid}/recall", async (
+    Guid id, RoutingConfigurationStore configurations, DeviceRegistry devices, RoutingService routing,
+    EventStream events, HttpContext context) =>
+{
+    var preset = configurations.Presets().FirstOrDefault(p => p.Id == id);
+    if (preset is null) return Results.NotFound();
+    var results = new List<RouteOperationResult>();
+    foreach (var set in preset.Routes.GroupBy(r => r.EncoderId))
+    {
+        var encoder = devices.Find(set.Key);
+        var targets = set.Select(r => devices.Find(r.DecoderId)).Where(d => d is not null).Cast<Device>().ToList();
+        if (encoder is not null && targets.Count > 0) results.Add(await routing.RouteAsync(encoder, targets, context.RequestAborted));
+        foreach (var decoder in targets) devices.Save(decoder);
+    }
+    events.Publish("devices", DeviceView.From(devices));
+    return Results.Ok(new { preset = preset.Name, successCount = results.Sum(r => r.SuccessCount), failureCount = results.Sum(r => r.FailureCount) });
+});
+
 // ---------------------------------------------------------------------------
 // Live updates and diagnostics
 // ---------------------------------------------------------------------------
@@ -341,6 +519,7 @@ app.MapGet("/api/system/status", (DeviceRegistry devices, VisionaryTransportOpti
         host = Environment.MachineName,
         webPort,
         listenOnAllInterfaces,
+        passwordProtected = !string.IsNullOrWhiteSpace(adminPassword),
         controlPort = transport.Port,
         databasePath,
         deviceCount = all.Count,
@@ -440,3 +619,8 @@ internal sealed record DeviceRequest(
     bool? Enabled);
 
 internal sealed record RouteRequest(Guid EncoderId, Guid[] DecoderIds);
+internal sealed record VideoInputRequest(string Input);
+internal sealed record DiscoveryRequest(string Subnet);
+internal sealed record DeviceOrderRequest(string Type, Guid[] DeviceIds);
+internal sealed record NamedDecoderSetRequest(string Name, Guid[] DecoderIds);
+internal sealed record PresetRequest(string Name, PresetRoute[] Routes);

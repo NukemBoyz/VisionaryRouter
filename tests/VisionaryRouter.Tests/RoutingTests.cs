@@ -22,7 +22,7 @@ internal sealed class FakeTransport : IVisionaryTransport
 
     public FakeEndpoint AddDecoder(string ip, string? initialSource = null)
     {
-        var endpoint = new FakeEndpoint { StreamHost = initialSource ?? string.Empty };
+        var endpoint = new FakeEndpoint { StreamHost = initialSource ?? string.Empty, StreamConnected = !string.IsNullOrWhiteSpace(initialSource) };
         _endpoints[ip] = endpoint;
         return endpoint;
     }
@@ -51,11 +51,39 @@ internal sealed class FakeTransport : IVisionaryTransport
                 VisionaryResponse.Parse($"&STREAM.HOST={endpoint.StreamHost}&API.STATUS=SUCCESS_QUERY")));
         }
 
+        if (request.TryGet("QUERY.KEY", out key) && key == VisionaryKeys.StreamConnect)
+        {
+            return Task.FromResult(VisionaryQueryResult.Ok(
+                VisionaryResponse.Parse($"&STREAM.CONNECT={endpoint.StreamConnected.ToString().ToUpperInvariant()}&API.STATUS=SUCCESS_QUERY")));
+        }
+
+        if (request.TryGet("QUERY.KEY", out key) && key == VisionaryKeys.StreamVideo)
+        {
+            return Task.FromResult(VisionaryQueryResult.Ok(
+                VisionaryResponse.Parse($"&STREAM.VIDEO={endpoint.VideoInput}&API.STATUS=SUCCESS_QUERY")));
+        }
+
+        if (request.TryGet(VisionaryKeys.StreamVideo, out var requestedInput))
+        {
+            endpoint.VideoInput = requestedInput;
+            return Task.FromResult(VisionaryQueryResult.Ok(
+                VisionaryResponse.Parse("&STREAM.CONNECT=queue_next_switch&API.STATUS=SUCCESS")));
+        }
+
+        if (request.TryGet(VisionaryKeys.StreamConnect, out var connect) && connect == "FALSE")
+        {
+            endpoint.StreamHost = string.Empty;
+            endpoint.StreamConnected = false;
+            return Task.FromResult(VisionaryQueryResult.Ok(
+                VisionaryResponse.Parse("&STREAM.CONNECT=FALSE&API.STATUS=SUCCESS")));
+        }
+
         if (request.TryGet(VisionaryKeys.StreamHost, out var requested))
         {
             if (!endpoint.RefuseToSwitch)
             {
                 endpoint.StreamHost = requested;
+                endpoint.StreamConnected = true;
             }
 
             return Task.FromResult(VisionaryQueryResult.Ok(
@@ -69,8 +97,10 @@ internal sealed class FakeTransport : IVisionaryTransport
 internal sealed class FakeEndpoint
 {
     public string StreamHost { get; set; } = string.Empty;
+    public string VideoInput { get; set; } = "HDMI1";
     public bool Unresponsive { get; set; }
     public bool RefuseToSwitch { get; set; }
+    public bool StreamConnected { get; set; }
 }
 
 public class RoutingServiceTests
@@ -108,6 +138,23 @@ public class RoutingServiceTests
         Type = DeviceType.Decoder,
         IpAddress = ip
     };
+
+    [Fact]
+    public async Task Clears_a_decoder_route_and_verifies_no_source()
+    {
+        var (routing, transport) = Build();
+        transport.AddDecoder("10.0.0.20", "10.0.0.10");
+        var decoder = Decoder("10.0.0.20", "North TV");
+        decoder.AssignedEncoderIp = "10.0.0.10";
+
+        var result = await routing.ClearAsync(decoder);
+
+        Assert.True(result.Success);
+        Assert.Equal(RouteStatus.Accepted, result.Status);
+        Assert.False(result.Verified);
+        Assert.Null(decoder.AssignedEncoderIp);
+        Assert.Contains(transport.Sent, s => s.Target == "10.0.0.20" && s.Command.Contains("STREAM.CONNECT=FALSE"));
+    }
 
     [Fact]
     public async Task Routes_one_decoder_and_verifies_the_result()
@@ -338,5 +385,27 @@ public class DeviceClientTests
 
         Assert.False(result.Success);
         Assert.Empty(transport.Sent);
+    }
+
+    [Fact]
+    public async Task Encoder_input_can_be_selected_and_read_back()
+    {
+        var transport = new FakeTransport();
+        transport.AddDecoder("10.0.0.10");
+        var client = new VisionaryDeviceClient(transport, NullLogger<VisionaryDeviceClient>.Instance);
+        var encoder = new Device
+        {
+            Id = Guid.NewGuid(),
+            Name = "Lectern",
+            Type = DeviceType.Encoder,
+            IpAddress = "10.0.0.10"
+        };
+
+        var sent = await client.SelectVideoInputAsync(encoder, "USB-C");
+        var reported = await client.ReadVideoInputAsync(encoder);
+
+        Assert.True(sent.Success);
+        Assert.Equal("USB-C", reported);
+        Assert.Equal("USB-C", encoder.VideoInput);
     }
 }

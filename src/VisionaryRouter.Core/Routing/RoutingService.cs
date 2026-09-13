@@ -67,6 +67,30 @@ public sealed class RoutingService
         return operation;
     }
 
+    public async Task<RouteResult> ClearAsync(Device decoder, CancellationToken cancellationToken = default)
+    {
+        if (!decoder.Enabled) return Fail(decoder, RouteStatus.Failed, "Decoder is disabled in this application");
+
+        var sent = await _client.DisconnectAsync(decoder, cancellationToken);
+        if (!sent.Success)
+        {
+            return Fail(decoder, sent.TimedOut ? RouteStatus.Offline : RouteStatus.Failed, sent.Error);
+        }
+
+        // 4-Series firmware 2.3.152 acknowledges the disconnect but retains STREAM.HOST,
+        // and does not expose STREAM.CONNECT through QUERY.KEY. This is accepted, not an
+        // independently verified state.
+        decoder.RouteCleared = true;
+        decoder.StreamConnected = false;
+        decoder.AssignedEncoderIp = null;
+        decoder.CurrentEncoderIp = null;
+        return new RouteResult
+        {
+            DecoderId = decoder.Id, DecoderName = decoder.Name, Status = RouteStatus.Accepted,
+            Commanded = true, Verified = false
+        };
+    }
+
     private async Task<RouteResult> RouteOneAsync(Device encoder, Device decoder, CancellationToken cancellationToken)
     {
         if (!decoder.Enabled)
@@ -79,6 +103,7 @@ public sealed class RoutingService
         // question "what did I send here" has an answer even when the endpoint is unplugged.
         // Whether it took is a separate question, answered by the verification below.
         decoder.AssignedEncoderIp = encoder.IpAddress;
+        decoder.RouteCleared = false;
         decoder.UpdatedUtc = DateTime.UtcNow;
 
         var send = await _client.SendRouteAsync(decoder, encoder.IpAddress, cancellationToken);
@@ -104,6 +129,7 @@ public sealed class RoutingService
 
             if (string.Equals(reported, encoder.IpAddress, StringComparison.OrdinalIgnoreCase))
             {
+                decoder.StreamConnected = true;
                 _logger.LogInformation(
                     "ROUTE VERIFIED {Decoder} STREAM.HOST={EncoderIp}",
                     decoder.Name, encoder.IpAddress);

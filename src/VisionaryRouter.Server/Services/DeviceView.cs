@@ -21,11 +21,17 @@ public sealed record DeviceView
     public string? Firmware { get; init; }
     public string? MacAddress { get; init; }
     public string? StreamMode { get; init; }
+    public string? VideoInput { get; init; }
+    public bool? VideoSignalPresent { get; init; }
+    public string? VideoTiming { get; init; }
+    public int SortOrder { get; init; }
     public string? LastError { get; init; }
     public DateTime? LastSeenUtc { get; init; }
 
     /// <summary>Decoders only: the encoder IP the device reports it is following.</summary>
     public string? CurrentEncoderIp { get; init; }
+    public bool? StreamConnected { get; init; }
+    public bool RouteCleared { get; init; }
 
     /// <summary>
     /// Friendly name for <see cref="CurrentEncoderIp"/>, when that IP belongs to a device we
@@ -65,9 +71,15 @@ public sealed record DeviceView
         Firmware = device.Firmware,
         MacAddress = device.MacAddress,
         StreamMode = device.StreamMode,
+        VideoInput = device.VideoInput,
+        VideoSignalPresent = device.VideoSignalPresent,
+        VideoTiming = device.VideoTiming,
+        SortOrder = device.SortOrder,
         LastError = device.LastError,
         LastSeenUtc = device.LastSeenUtc,
         CurrentEncoderIp = device.CurrentEncoderIp,
+        StreamConnected = device.StreamConnected,
+        RouteCleared = device.RouteCleared,
         CurrentSourceName = registry.FindByIp(device.CurrentEncoderIp)?.Name,
         AssignedEncoderIp = device.AssignedEncoderIp,
         ColorIndex = registry.ColorIndexFor(device),

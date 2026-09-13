@@ -14,13 +14,21 @@
 const state = {
     devices: [],
     selectedSource: null,
-    selectedDestinations: new Set()
+    selectedDestinations: new Set(),
+    switchingInputs: new Set(),
+    clearingRoutes: new Set(),
+    groups: [],
+    presets: [],
+    hideDisabled: true,
+    hideOffline: false,
+    draggedDeviceId: null
 };
 
 // --- element lookups --------------------------------------------------------
 
 const el = {
     connection: document.getElementById('connection'),
+    fullscreenBtn: document.getElementById('fullscreen-btn'),
     sources: document.getElementById('sources'),
     destinations: document.getElementById('destinations'),
     routeBtn: document.getElementById('route-btn'),
@@ -28,6 +36,16 @@ const el = {
     routeResults: document.getElementById('route-results'),
     selectAll: document.getElementById('select-all'),
     selectNone: document.getElementById('select-none'),
+    clearAllRoutes: document.getElementById('clear-all-routes'),
+    hideDisabled: document.getElementById('hide-disabled'),
+    hideOffline: document.getElementById('hide-offline'),
+    groupList: document.getElementById('group-list'),
+    presetList: document.getElementById('preset-list'),
+    saveGroup: document.getElementById('save-group'),
+    savePreset: document.getElementById('save-preset'),
+    scanSubnet: document.getElementById('scan-subnet'),
+    scanDevices: document.getElementById('scan-devices'),
+    scanStatus: document.getElementById('scan-status'),
     addForm: document.getElementById('add-form'),
     encoderTable: document.getElementById('encoder-table'),
     decoderTable: document.getElementById('decoder-table'),
@@ -104,6 +122,29 @@ function sourceColour(colorIndex) {
         : `var(--src-${colorIndex % PALETTE_SIZE})`;
 }
 
+// --- fullscreen ------------------------------------------------------------
+
+function syncFullscreenButton() {
+    const active = Boolean(document.fullscreenElement);
+    el.fullscreenBtn.setAttribute('aria-pressed', String(active));
+    el.fullscreenBtn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Enter fullscreen');
+    el.fullscreenBtn.title = active ? 'Exit fullscreen' : 'Enter fullscreen';
+    el.fullscreenBtn.querySelector('.fullscreen-label').textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    el.fullscreenBtn.querySelector('.fullscreen-icon').textContent = active ? '×' : '⛶';
+}
+
+async function toggleFullscreen() {
+    try {
+        if (document.fullscreenElement) {
+            await document.exitFullscreen();
+        } else {
+            await document.documentElement.requestFullscreen();
+        }
+    } catch (error) {
+        log(`Fullscreen is not available: ${error.message}`, 'warn');
+    }
+}
+
 const encoders = () => state.devices.filter(d => d.type === 'Encoder');
 const decoders = () => state.devices.filter(d => d.type === 'Decoder');
 const unclassified = () => state.devices.filter(d => d.type === 'Unknown');
@@ -112,8 +153,10 @@ const byId = id => state.devices.find(d => d.id === id);
 // --- routing view -----------------------------------------------------------
 
 function renderRouting() {
-    const sources = encoders();
-    const destinations = decoders();
+    const visible = device => (!state.hideDisabled || device.enabled) &&
+        (!state.hideOffline || device.onlineState !== 'Offline');
+    const sources = encoders().filter(visible);
+    const destinations = decoders().filter(visible);
 
     el.sources.replaceChildren(...(sources.length
         ? sources.map(renderSourceCard)
@@ -124,27 +167,74 @@ function renderRouting() {
         : [h('div', { class: 'empty', text: 'No decoders yet. Add one on the Devices tab.' })]));
 
     renderRouteBar();
+    renderRoutingTools();
 }
 
 function renderSourceCard(device) {
     const selected = state.selectedSource === device.id;
+    const switching = state.switchingInputs.has(device.id);
 
-    return h('button', {
+    return h('div', {
         class: `card card-source${selected ? ' is-selected' : ''}${device.onlineState === 'Offline' ? ' is-offline' : ''}`,
         style: `--card-colour: ${sourceColour(device.colorIndex)}`,
-        onclick: () => {
-            state.selectedSource = selected ? null : device.id;
-            renderRouting();
-        }
+        draggable: true,
+        ondragstart: () => state.draggedDeviceId = device.id,
+        ondragover: event => event.preventDefault(),
+        ondrop: event => reorderDevice(event, device)
     },
-        h('span', { class: `state-dot state-${device.onlineState}` }),
-        h('span', { class: 'card-body' },
-            h('div', { class: 'card-name', text: device.name }),
-            h('div', { class: 'card-sub', text: `${device.ipAddress}${device.model ? '  ·  ' + device.model : ''}` })));
+        h('button', {
+            class: 'card-select',
+            type: 'button',
+            'aria-pressed': selected,
+            onclick: () => {
+                state.selectedSource = selected ? null : device.id;
+                renderRouting();
+            }
+        },
+            h('span', { class: `state-dot state-${device.onlineState}` }),
+            h('span', { class: 'card-body' },
+                h('div', { class: 'card-name', text: device.name }),
+                h('div', { class: 'card-sub', text: `${device.ipAddress}${device.model ? '  ·  ' + device.model : ''}` }))),
+        h('div', { class: 'input-switcher', 'aria-label': `${device.name} input selection` },
+            ['HDMI1', 'HDMI2', 'USB-C'].map(input => h('button', {
+                class: `input-btn${device.videoInput === input ? ' is-active' : ''}`,
+                type: 'button',
+                title: device.videoInput === input ? (device.videoTiming || 'Signal state unknown') : 'Signal is measured on the selected input',
+                disabled: switching || device.onlineState === 'Offline',
+                'aria-pressed': device.videoInput === input,
+                onclick: () => selectVideoInput(device, input)
+            }, inputLabel(input),
+                device.videoInput === input && device.videoSignalPresent !== null && device.videoSignalPresent !== undefined
+                    ? h('span', { class: `signal-dot ${device.videoSignalPresent ? 'has-signal' : 'no-signal'}` })
+                    : null))));
+}
+
+function inputLabel(input) {
+    return input === 'HDMI1' ? 'HDMI 1' : input === 'HDMI2' ? 'HDMI 2' : 'USB-C';
+}
+
+async function selectVideoInput(device, input) {
+    state.switchingInputs.add(device.id);
+    renderRouting();
+    log(`Switching ${device.name} to ${inputLabel(input)}`);
+
+    try {
+        const result = await api('POST', `/api/devices/${device.id}/video-input`, { input });
+        log(result.verified
+            ? `${device.name}: ${inputLabel(input)} verified`
+            : `${device.name}: ${result.error || 'input switch did not verify'}`,
+        result.verified ? 'ok' : 'fail');
+    } catch (error) {
+        log(error.message, 'fail');
+    } finally {
+        state.switchingInputs.delete(device.id);
+        renderRouting();
+    }
 }
 
 function renderDestinationCard(device) {
     const selected = state.selectedDestinations.has(device.id);
+    const clearing = state.clearingRoutes.has(device.id);
 
     // Show what the decoder says it is following, resolved to a friendly name when we know
     // the encoder. An unknown IP is shown raw rather than hidden - it means something outside
@@ -170,20 +260,26 @@ function renderDestinationCard(device) {
     if (selected) classes.push('is-selected');
     if (device.onlineState === 'Offline') classes.push('is-offline');
 
-    return h('button', {
+    return h('div', {
         class: classes.join(' '),
         style: `--card-colour: ${sourceColour(device.routedSourceColorIndex)}`,
-        onclick: () => {
-            if (selected) state.selectedDestinations.delete(device.id);
-            else state.selectedDestinations.add(device.id);
-            renderRouting();
-        }
+        draggable: true,
+        ondragstart: () => state.draggedDeviceId = device.id,
+        ondragover: event => event.preventDefault(),
+        ondrop: event => reorderDevice(event, device)
     },
-        h('span', { class: 'check', text: '✓' }),
-        h('span', { class: `state-dot state-${device.onlineState}` }),
-        h('span', { class: 'card-body' },
-            h('div', { class: 'card-name', text: device.name }),
-            h('div', { class: 'card-sub' }, current)));
+        h('button', { class: 'card-select dest-select', type: 'button', onclick: () => {
+                if (selected) state.selectedDestinations.delete(device.id);
+                else state.selectedDestinations.add(device.id);
+                renderRouting();
+            } },
+            h('span', { class: 'check', text: '✓' }),
+            h('span', { class: `state-dot state-${device.onlineState}` }),
+            h('span', { class: 'card-body' },
+                h('div', { class: 'card-name', text: device.name }),
+                h('div', { class: 'card-sub' }, current))),
+        h('button', { class: 'btn btn-quiet clear-route', type: 'button', text: clearing ? 'Clearing…' : 'Clear',
+            disabled: clearing || device.onlineState === 'Offline', onclick: () => clearRoute(device) }));
 }
 
 function renderRouteBar() {
@@ -273,6 +369,145 @@ function renderRouteResults(result, colorIndex) {
     el.routeResults.replaceChildren(...children);
 }
 
+async function clearRoute(device) {
+    state.clearingRoutes.add(device.id);
+    renderRouting();
+    try {
+        const result = await api('POST', `/api/devices/${device.id}/clear-route`);
+        log(result.success ? `${device.name}: route clear accepted` : `${device.name}: ${result.error}`, result.success ? 'ok' : 'fail');
+    } catch (error) {
+        log(error.message, 'fail');
+    } finally {
+        state.clearingRoutes.delete(device.id);
+        renderRouting();
+    }
+}
+
+async function clearAllRoutes() {
+    if (!confirm('Clear the video route from every enabled decoder?')) return;
+    el.clearAllRoutes.disabled = true;
+    el.clearAllRoutes.textContent = 'Clearing…';
+    try {
+        const result = await api('POST', '/api/routes/clear');
+        log(`Clear all: ${result.successCount} verified, ${result.failureCount} failed`, result.failureCount ? 'warn' : 'ok');
+    } catch (error) {
+        log(error.message, 'fail');
+    } finally {
+        el.clearAllRoutes.disabled = false;
+        el.clearAllRoutes.textContent = 'Clear all';
+    }
+}
+
+async function reorderDevice(event, target) {
+    event.preventDefault();
+    const moved = byId(state.draggedDeviceId);
+    state.draggedDeviceId = null;
+    if (!moved || moved.id === target.id || moved.type !== target.type) return;
+
+    const ordered = state.devices.filter(d => d.type === target.type);
+    ordered.splice(ordered.findIndex(d => d.id === moved.id), 1);
+    ordered.splice(ordered.findIndex(d => d.id === target.id), 0, moved);
+    try {
+        await api('POST', '/api/devices/order', { type: target.type, deviceIds: ordered.map(d => d.id) });
+        log(`Moved ${moved.name} before ${target.name}`);
+    } catch (error) {
+        log(error.message, 'fail');
+    }
+}
+
+function renderRoutingTools() {
+    el.groupList.replaceChildren(...(state.groups.length ? state.groups.map(group => h('span', { class: 'saved-chip' },
+        h('button', { class: 'chip-main', text: group.name, title: 'Select this group', onclick: () => {
+            state.selectedDestinations = new Set(group.decoderIds.filter(id => byId(id)));
+            renderRouting();
+        }}),
+        h('button', { class: 'chip-delete', text: '×', title: `Delete ${group.name}`, onclick: () => deleteSaved('groups', group.id) })))
+        : [h('span', { class: 'hint-inline', text: 'No groups saved' })]));
+
+    el.presetList.replaceChildren(...(state.presets.length ? state.presets.map(preset => h('span', { class: 'saved-chip' },
+        h('button', { class: 'chip-main', text: preset.name, title: 'Recall this preset', onclick: () => recallPreset(preset) }),
+        h('button', { class: 'chip-delete', text: '×', title: `Delete ${preset.name}`, onclick: () => deleteSaved('presets', preset.id) })))
+        : [h('span', { class: 'hint-inline', text: 'No presets saved' })]));
+}
+
+async function loadRoutingTools() {
+    try {
+        [state.groups, state.presets] = await Promise.all([api('GET', '/api/groups'), api('GET', '/api/presets')]);
+        renderRoutingTools();
+    } catch (error) { log(error.message, 'fail'); }
+}
+
+async function saveGroup() {
+    if (!state.selectedDestinations.size) { log('Select at least one destination before saving a group', 'warn'); return; }
+    const name = prompt('Group name');
+    if (!name || !name.trim()) return;
+    try {
+        await api('POST', '/api/groups', { name: name.trim(), decoderIds: [...state.selectedDestinations] });
+        await loadRoutingTools();
+        log(`Saved decoder group ${name.trim()}`, 'ok');
+    } catch (error) { log(error.message, 'fail'); }
+}
+
+async function savePreset() {
+    const routes = decoders().filter(d => d.currentEncoderIp && encoders().some(e => e.id && e.ipAddress === d.currentEncoderIp))
+        .map(d => ({ decoderId: d.id, encoderId: encoders().find(e => e.ipAddress === d.currentEncoderIp).id }));
+    if (!routes.length) { log('There are no known active routes to save', 'warn'); return; }
+    const name = prompt('Preset name');
+    if (!name || !name.trim()) return;
+    try {
+        await api('POST', '/api/presets', { name: name.trim(), routes });
+        await loadRoutingTools();
+        log(`Saved preset ${name.trim()}`, 'ok');
+    } catch (error) { log(error.message, 'fail'); }
+}
+
+async function recallPreset(preset) {
+    try {
+        const result = await api('POST', `/api/presets/${preset.id}/recall`);
+        log(`${result.preset}: ${result.successCount} verified, ${result.failureCount} failed`, result.failureCount ? 'warn' : 'ok');
+    } catch (error) { log(error.message, 'fail'); }
+}
+
+async function deleteSaved(kind, id) {
+    try { await api('DELETE', `/api/${kind}/${id}`); await loadRoutingTools(); }
+    catch (error) { log(error.message, 'fail'); }
+}
+
+// --- discovery -------------------------------------------------------------
+
+async function scanAndAddDevices() {
+    const subnet = el.scanSubnet.value.trim();
+    if (!subnet) return;
+
+    el.scanDevices.disabled = true;
+    el.scanDevices.textContent = 'Scanning…';
+    el.scanStatus.hidden = false;
+    el.scanStatus.className = 'scan-status';
+    el.scanStatus.textContent = `Scanning ${subnet}. This can take up to about 20 seconds.`;
+    log(`Scanning ${subnet} for Visionary endpoints`);
+
+    try {
+        const result = await api('POST', '/api/discovery/scan', { subnet });
+        const added = result.devices.filter(device => device.action === 'added');
+        const refreshed = result.devices.filter(device => device.action === 'refreshed');
+        const names = result.devices.map(device => `${device.name} (${device.ipAddress})`).join(', ');
+
+        el.scanSubnet.value = result.subnet;
+        el.scanStatus.textContent = result.devices.length
+            ? `Found ${result.devices.length}: ${added.length} added, ${refreshed.length} already known. ${names}`
+            : `No Visionary endpoints answered on ${result.subnet}.`;
+        log(`Scan complete: ${added.length} added, ${refreshed.length} refreshed`,
+            result.devices.length ? 'ok' : 'warn');
+    } catch (error) {
+        el.scanStatus.className = 'scan-status is-error';
+        el.scanStatus.textContent = error.message;
+        log(error.message, 'fail');
+    } finally {
+        el.scanDevices.disabled = false;
+        el.scanDevices.textContent = 'Scan & add';
+    }
+}
+
 // --- devices view -----------------------------------------------------------
 
 function renderDevices() {
@@ -327,6 +562,7 @@ function renderDeviceTable(table, devices, showSource) {
             ' ', device.onlineState,
             device.lastError ? h('div', { class: 'device-error', text: device.lastError }) : null),
         h('td', {}, h('div', { class: 'cell-actions' },
+            h('button', { class: 'btn btn-quiet', text: device.enabled ? 'Disable' : 'Enable', onclick: () => toggleEnabled(device) }),
             h('button', { class: 'btn btn-quiet', text: 'Probe', onclick: () => probe(device) }),
             h('button', { class: 'btn btn-quiet', text: 'Identify', onclick: () => identify(device) }),
             h('button', {
@@ -349,6 +585,13 @@ async function rename(device, name) {
     } catch (error) {
         log(error.message, 'fail');
     }
+}
+
+async function toggleEnabled(device) {
+    try {
+        await api('PUT', `/api/devices/${device.id}`, { name: device.name, ipAddress: device.ipAddress, enabled: !device.enabled });
+        log(`${device.enabled ? 'Disabled' : 'Enabled'} ${device.name}`);
+    } catch (error) { log(error.message, 'fail'); }
 }
 
 async function probe(device) {
@@ -401,6 +644,7 @@ async function refreshStatus() {
             ['Host', status.host],
             ['Web UI port', status.webPort],
             ['Reachable from network', status.listenOnAllInterfaces ? 'Yes' : 'No (localhost only)'],
+            ['Password protection', status.passwordProtected ? 'Enabled' : 'Not configured'],
             ['Endpoint control port', status.controlPort],
             ['Database', status.databasePath],
             ['Devices', `${status.deviceCount} (${status.encoderCount} encoders, ${status.decoderCount} decoders)`],
@@ -467,8 +711,21 @@ for (const tab of document.querySelectorAll('.tab')) {
 
 el.routeBtn.addEventListener('click', performRoute);
 
+if (document.fullscreenEnabled && document.documentElement.requestFullscreen) {
+    el.fullscreenBtn.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', syncFullscreenButton);
+    syncFullscreenButton();
+} else {
+    el.fullscreenBtn.disabled = true;
+    el.fullscreenBtn.title = 'Fullscreen is not supported by this browser';
+}
+
 el.selectAll.addEventListener('click', () => {
-    for (const device of decoders()) state.selectedDestinations.add(device.id);
+    for (const device of decoders()) {
+        if ((!state.hideDisabled || device.enabled) && (!state.hideOffline || device.onlineState !== 'Offline')) {
+            state.selectedDestinations.add(device.id);
+        }
+    }
     renderRouting();
 });
 
@@ -476,6 +733,14 @@ el.selectNone.addEventListener('click', () => {
     state.selectedDestinations.clear();
     renderRouting();
 });
+
+el.clearAllRoutes.addEventListener('click', clearAllRoutes);
+el.hideDisabled.addEventListener('change', event => { state.hideDisabled = event.target.checked; renderRouting(); });
+el.hideOffline.addEventListener('change', event => { state.hideOffline = event.target.checked; renderRouting(); });
+el.saveGroup.addEventListener('click', saveGroup);
+el.savePreset.addEventListener('click', savePreset);
+
+el.scanDevices.addEventListener('click', scanAndAddDevices);
 
 el.addForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -509,4 +774,5 @@ document.getElementById('refresh-status').addEventListener('click', refreshStatu
 document.getElementById('clear-log').addEventListener('click', () => el.log.replaceChildren());
 
 log('Visionary Router UI ready');
+loadRoutingTools();
 connect();
