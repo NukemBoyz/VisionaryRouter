@@ -1,9 +1,9 @@
 # Visionary Router — Implementation Handoff
 
-**Canonical repository:** `C:\Users\Admin\Documents\Programming\VisionaryRouter`  
-**Last audited:** 2026-09-13  
-**Audited commit before this documentation update:** `c816c92` (`master`)  
-**Hardware status:** initial E4200/D4200 query and routing validation completed; visual and full acceptance testing remain
+**Canonical repository:** `C:\Users\Admin\Documents\Programming\VisionaryRouter`
+**Last audited:** 2026-09-14
+**Audited commit before this documentation update:** `c816c92` (`master`, since renamed `main`)
+**Hardware status:** initial E4200/D4200 query and routing validation completed; visual and full acceptance testing remain. The clear-then-reroute fix of 2026-09-14 is simulator-tested only - the bench link dropped before it could be confirmed on the decoders that showed the fault.
 
 This file is the continuity point for Codex, Claude, or another engineer. Read it with `README.md` before changing the project. Treat the code and tests as authoritative when an older planning document disagrees.
 
@@ -23,6 +23,7 @@ Implemented:
 - Decoder `STREAM.HOST` polling and encoder health polling
 - Detection of externally changed routes
 - Source-centric browser UI, device page, and diagnostics page
+- Simplified Operators tab with only source cards, destination cards, and routing action
 - Live UI updates using Server-Sent Events (SSE)
 - Fake Visionary endpoints, including deliberate timeout and accepted-but-not-switched failures
 - Standalone real-hardware probe CLI
@@ -31,6 +32,10 @@ Implemented:
 - Explicit IPv4 `/24` device scan that adds confirmed endpoints and refreshes existing matches
 - Decoder groups and routing presets, stored as JSON in the `Settings` table
 - Optional HTTP basic authentication, required before the UI may bind to all interfaces
+- Diagnostics UI for selecting specific listening interfaces by stable Windows adapter ID
+- SQLite-backed Web UI port selection with automatic startup collision recovery
+- Tested self-contained Windows x64 ZIP requiring no installed .NET runtime or installer
+- Self-contained Ubuntu x64/ARM64 packages with interactive systemd installation
 - Credential redaction at the protocol boundary
 
 Not implemented:
@@ -38,7 +43,6 @@ Not implemented:
 - Full real-hardware acceptance testing (basic E4200/D4200 routing has passed)
 - Visual confirmation that a routed display actually changes picture
 - Multicast discovery on `226.0.0.19`
-- User-selectable control NIC binding
 - Traditional matrix view
 - Windows Service integration and installer
 - Backup/export/import
@@ -54,21 +58,29 @@ dotnet build VisionaryRouter.slnx --configuration Release --no-restore
 Build succeeded. 0 warnings, 0 errors.
 
 dotnet test VisionaryRouter.slnx --configuration Release
-Passed: 76, Failed: 0, Skipped: 0.
+Passed: 97, Failed: 0, Skipped: 0.
 ```
 
 The repository was clean before this handoff/README documentation change.
 
-## Runtime and Framework Decision to Confirm
+## Runtime and Packaging Decision
 
-Every project currently targets `net10.0`, and the direct Microsoft package references are `10.0.11`. The installed SDK is .NET 10.0.400.
+Every project targets `net10.0`, and the direct Microsoft package references are `10.0.11`.
+The deployment choice is now a self-contained Windows x64 package, so the operator machine
+does not need an installed .NET runtime. Preserve `net10.0` unless the owner explicitly asks
+for a coordinated retarget and full regression pass.
 
-The original research request mentioned .NET 8, while the actual implementation consistently uses .NET 10. Do not silently retarget it. Before packaging for deployment, explicitly choose one:
+`scripts/publish-windows.ps1` runs Release tests, publishes using
+`Properties/PublishProfiles/Windows-x64.pubxml`, and creates
+`artifacts/VisionaryRouter-win-x64.zip`. The package contains the single-file
+`VisionaryRouter.exe`, static Web UI assets, configuration, and `README-FIRST.txt`. It is
+portable rather than installed and is not currently code-signed.
 
-- Keep .NET 10 and document/install that runtime or publish self-contained.
-- Retarget all projects and Microsoft package references together to .NET 8, then run the full build, test, simulator, and hardware acceptance passes.
-
-Until the owner makes that decision, preserve `net10.0` because it is the known-good implementation state.
+`scripts/publish-ubuntu.ps1` builds `linux-x64` and `linux-arm64` self-contained archives.
+Each contains an interactive installer, uninstaller, quick-start guide, and hardened systemd
+unit. Linux deployment uses `/opt/visionary-router` for application files,
+`/var/lib/visionary-router` for durable data, and `/etc/visionary-router` for protected
+configuration. Server-side invariant globalization removes the ICU package dependency.
 
 ## Implemented Architecture
 
@@ -126,7 +138,7 @@ The command builder refuses `SAVE`, `UNIT.SAVE`, `UNIT.RESET`, and `UNIT.REBOOT`
 
 ```text
 Web UI: http://localhost:8088
-Listen on all interfaces: false
+Listen on selected network interfaces: none (localhost only)
 Open browser on start: true
 UDP query timeout: 1000 ms
 UDP retry count: 1 additional attempt
@@ -138,7 +150,18 @@ Decoder route poll interval: 3 seconds
 Encoder heartbeat interval: 10 seconds
 ```
 
-`Router:ListenOnAllInterfaces=true` now requires `Router:AdminPassword`; the server throws at startup rather than serving an unauthenticated control surface to the LAN. Set the password out of band, for example via the `Router__AdminPassword` environment variable, and do not commit it. The transport is still plain HTTP, so treat LAN exposure as suitable for a trusted control network only.
+The preferred setup is **Diagnostics → Network Access**. It lists every active IPv4 adapter,
+allows the operator to select only the interfaces that should serve the UI, and requires an
+administrator password before any non-loopback interface can be saved. Selections and the
+PBKDF2-SHA256 password hash are stored in SQLite; plaintext passwords are never stored.
+Adapter IDs, rather than DHCP addresses, are persisted and resolved at the next startup.
+Changes require an application restart. Localhost always remains enabled.
+
+The legacy `Router:ListenOnAllInterfaces=true` configuration is still supported and requires
+`Router:AdminPassword`; the server throws at startup rather than serving an unauthenticated
+control surface to the LAN. The transport is still plain HTTP, so use this only on trusted
+networks. Windows Firewall must separately allow inbound TCP on port 8088; the application
+does not create or modify firewall rules.
 
 The SQLite database is normally:
 
@@ -320,3 +343,128 @@ At the end of each meaningful work session:
 - `dotnet build VisionaryRouter.slnx --configuration Release` — 0 warnings, 0 errors.
 - `dotnet test VisionaryRouter.slnx --configuration Release` — 76 passed, 0 failed.
 - Still outstanding and unchanged: nobody has confirmed a display actually changes picture when routed.
+
+### 2026-09-14 — device-name editor focus fix
+
+- Fixed the Devices page rebuilding its tables during a live SSE update while an operator was typing a friendly name. Replacing the focused input caused partial text and moved the cursor away from the field.
+- Device-table rendering now pauses only while a `.name-input` has focus. The completed name still saves through the existing change handler, and the next live update redraws normally.
+- Browser-tested by keeping an unsaved temporary name focused while forcing a real encoder probe/SSE update. The same input remained connected and focused with the complete value; the page was then reloaded so the test value was never saved.
+- `node --check src/VisionaryRouter.Server/wwwroot/app.js` passed.
+- `dotnet build VisionaryRouter.slnx --configuration Debug` — 0 warnings, 0 errors.
+- `dotnet test VisionaryRouter.slnx --configuration Debug --no-build` — 80 passed, 0 failed.
+
+### 2026-09-14 — simplified Operators tab
+
+- Added an Operators tab that exposes only online/enabled source cards, online/enabled destination cards, and a Route button. It intentionally omits physical input switching, clear-route actions, filters, groups, presets, device management, and diagnostics.
+- The Operators and full Routing tabs share the same selected source/destinations and live device state; there is no duplicate routing model.
+- Verified that selecting a source and destination enables the Operator Route button without issuing a route during the test.
+- Tightened the four-tab mobile header layout. At a 322px viewport, document width now equals viewport width with no horizontal overflow.
+- Browser console check returned no warnings or errors.
+- `node --check src/VisionaryRouter.Server/wwwroot/app.js` passed.
+- `dotnet build VisionaryRouter.slnx --configuration Debug` — 0 warnings, 0 errors.
+- `dotnet test VisionaryRouter.slnx --configuration Debug --no-build` — 80 passed, 0 failed.
+
+### 2026-09-14 — interface-specific Web UI access
+
+- Added **Diagnostics → Network Access** with an explicit checkbox for each active IPv4
+  interface. Localhost is always enabled; no external interface is selected by default.
+- Interface choices are persisted in SQLite by stable Windows adapter ID and resolved to
+  current IPv4 addresses at startup, so Wi-Fi and Ethernet can be exposed independently.
+- Enabling any external interface requires an administrator password. The password is stored
+  only as a salted PBKDF2-SHA256 hash and protects the whole UI/API after restart using
+  username `admin`.
+- Current machine choices shown by the UI include Wi-Fi `192.168.1.29` and Ethernet
+  `192.168.0.67`. To serve the operator's phone, select Wi-Fi, set the password, save, restart,
+  and ensure Windows Firewall permits inbound TCP 8088 on the Wi-Fi network.
+- The application deliberately does not create Windows Firewall rules. Basic authentication
+  is still transported over plain HTTP and is intended only for a trusted LAN.
+- Browser-verified the panel in the live app at the narrow phone/tablet layout. All adapters
+  rendered unchecked by default and the browser console contained no warnings or errors.
+- `node --check src/VisionaryRouter.Server/wwwroot/app.js` passed.
+- Release Server build passed with 0 warnings and 0 errors.
+- Test suite passes 84 tests, including password hashing/verification and malformed-hash
+  rejection.
+
+### 2026-09-14 — no-install Windows package
+
+- Added a `win-x64`, self-contained, compressed single-file publish profile. The distributable
+  executable is named `VisionaryRouter.exe`; no .NET runtime, SDK, Node, SQLite service, or
+  installer is required on the target PC.
+- Added `scripts/publish-windows.ps1`, which validates all target paths, runs Release tests,
+  publishes the application, and creates `artifacts/VisionaryRouter-win-x64.zip`.
+- Included `README-FIRST.txt` in the package with double-click startup, shutdown, LAN access,
+  firewall, authentication, and persistent-data instructions.
+- Final archive size is approximately 44.1 MB. Archive contents were inspected and confirmed
+  to include the executable, Web UI assets, configuration, and quick-start file.
+- Smoke-tested the packaged executable directly in Production mode: `/` returned HTTP 200,
+  the expected page title was present, the API loaded all four devices, and all four polled
+  online. The running process name is `VisionaryRouter`.
+- Release tests passed: 84 passed, 0 failed, 0 skipped.
+- Diagnosed the first desktop-launch failure as a port collision with the development package
+  that this session had left running on port 8088; the desktop archive itself was complete.
+- Added a per-Windows-session named mutex. A second launch now opens the existing localhost UI
+  (when browser auto-open is enabled) and exits with code 0 instead of colliding on the port.
+- Rebuilt both the repository artifact and the copies on the owner's Desktop. Verified the
+  Desktop executable is the process serving port 8088, all four devices are online, and a
+  second launch exits successfully while the primary instance remains reachable.
+
+### 2026-09-14 — configurable Web UI port
+
+- Added a validated Web UI port field to **Diagnostics → Network Access**. Ports 1024–65535
+  are accepted, stored in SQLite, and applied with interface changes after restart.
+- Startup checks active TCP listeners. If the requested port is occupied by another
+  application, Visionary Router selects and saves the next available port rather than
+  terminating; the console and diagnostics API report the active port.
+- The active port is stored separately so a second launch opens the primary instance even
+  when a new port selection is waiting for restart.
+- Network URLs returned after saving use the requested port. The UI reminds operators that
+  Windows Firewall rules must match it.
+- Added deterministic port validation, selection, collision, and wraparound tests. The suite
+  now passes 97 tests with 0 failures and 0 skipped.
+- Rebuilt and replaced both the extracted Desktop package and Desktop ZIP, then ran the
+  updated portable executable against all four online devices.
+
+### 2026-09-14 — Ubuntu Server packages
+
+- Added self-contained `linux-x64` and `linux-arm64` publish targets for Intel/AMD NUCs and
+  64-bit Raspberry Pi systems. Neither package requires an installed .NET runtime.
+- Added an architecture-checking interactive installer that creates a dedicated unprivileged
+  `visionary-router` service account, installs under `/opt/visionary-router`, keeps durable
+  state under `/var/lib/visionary-router`, and protects configuration under
+  `/etc/visionary-router`.
+- Added a hardened systemd unit with automatic restart, filesystem protection, a private temp
+  directory, restricted address families, and a writable data-directory exception.
+- First installation asks for a Web UI port and password, reads the password through a
+  root-owned file rather than a process environment variable, bootstraps authenticated LAN
+  access, and offers to add a UFW rule when UFW is active. Interface selection can then be
+  narrowed through Diagnostics.
+- Added an uninstaller that preserves the database by default and removes it only with an
+  explicit `--purge` option. Re-running the installer upgrades the app while preserving data
+  and the existing password.
+- Ubuntu shell syntax checks passed and systemd-analyze accepted the unit syntax. WSL's
+  mounted source permissions produced expected warnings that the installer normalizes during
+  installation.
+- The first Linux smoke test exposed an ICU dependency. Enabled invariant globalization in
+  the Ubuntu profile, rebuilt, and then ran the x64 ELF successfully in Ubuntu without ICU.
+  HTTP `/api/system/status` returned 200 on port 18088 using `/tmp` data.
+- Verified first-run server mode separately: it bound `0.0.0.0:18089`, rejected an
+  unauthenticated request with HTTP 401, and accepted username `admin` plus the configured
+  password with HTTP 200.
+- Both archives include the app, Web UI assets, installer, uninstaller, service unit,
+  architecture marker, and Ubuntu quick-start guide. Release tests remain 97/97 passing.
+
+### 2026-09-14 — clear-then-reroute produced no video
+
+- Operator report: routing an encoder to both decoders worked, then Clear followed by routing the same encoder produced no picture. Routing a different encoder worked, and routing back to the first worked. Clear followed by the same source failed again.
+- Reproduced and traced on hardware. Re-routing a decoder to the encoder it already holds answers `&STREAM.HOST=NO_CHANGE&STREAM.CONNECT=ALREADY_CONNECTED&API.STATUS=SUCCESS` and does nothing, including after `STREAM.CONNECT=FALSE`. The decoder keeps the correct `STREAM.HOST` and passes no video.
+- The old verification could not see this. `STREAM.HOST` is a setting rather than a connection and read back correctly throughout, so the route was reported Verified against a black display.
+- Confirmed with `QUERY.VIDEO_TIMING`: encoder `192.168.0.16` reported a live 3840x2160 30Hz table while decoder `192.168.0.18` reported `Not Available`. That query is the only reliable proof a route took effect and is now part of verification.
+- `STREAM.CONNECT` is not usable as a state check: `QUERY.KEY=STREAM.CONNECT` returns `NOT_DEFINED`, and a bare `STREAM.CONNECT=TRUE` returns `NO_VALID_API_COMMAND`.
+- Recovery requires `STREAM.HOST` to actually change. `RoutingService` now detects the no-op reply and moves the decoder to a parking address and back, confirming each step by reading the address back. Fixed sleeps are not sufficient - switches are queued, and a second command issued too early is coalesced with the first. During investigation that left a decoder parked on the intermediate address with nothing on screen until it was restored.
+- The parking address is not another encoder, so a re-establish does not flash an unrelated source onto the display.
+- HDCP was eliminated as a cause: the encoder reports `HDCP: [Off]`.
+- The simulator reproduces the wedge. Without it the suite would keep passing a case that fails on hardware.
+- **Not verified on hardware.** The bench Ethernet link went down mid-session - all four endpoints became unreachable over raw UDP, the adapter left the Up list, and Windows began routing `192.168.0.0/24` out of Wi-Fi on a different subnet. The fix passes against the simulator only and still needs the original failing sequence re-run on the real decoders.
+- That outage is also the argument for the outstanding control-NIC binding item: with Ethernet, Wi-Fi, Tailscale, IPVanish, WSL and two Hyper-V adapters present, the application depends on the OS choosing the right path, and the OS chose wrong.
+- `dotnet build VisionaryRouter.slnx --configuration Release` — 0 warnings, 0 errors.
+- `dotnet test VisionaryRouter.slnx --configuration Release` — 97 passed, 0 failed.

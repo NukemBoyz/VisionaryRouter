@@ -46,10 +46,79 @@ commands and then ignores them.
 
 Use the **Fullscreen** button in the header for a dedicated control surface. The routing
 tiles automatically reflow and resize for desktop, landscape/portrait tablets, and phones.
+The **Operators** tab is the minimal day-to-day surface: source cards, destination cards,
+and a Route button only. Advanced controls remain on the full Routing and Devices tabs.
 
-To reach the UI from a tablet or another PC, set `Router:ListenOnAllInterfaces` to `true`.
-It is off by default — serving a control surface to the whole network should be a decision
-someone made, not a side effect of launching the app.
+### Running without installing anything
+
+Use the self-contained Windows x64 ZIP in `artifacts/VisionaryRouter-win-x64.zip`. Extract
+the complete archive and double-click `VisionaryRouter.exe`; the browser opens automatically.
+The target PC does not need the .NET runtime, SDK, Node, SQLite, or an installer. Keep the
+console window open while the router is running and close it to stop the application.
+Launching `VisionaryRouter.exe` again while it is already running reopens the existing Web UI
+and exits the duplicate cleanly instead of failing because port 8088 is already in use.
+
+Create a fresh tested package from the repository root with:
+
+```powershell
+./scripts/publish-windows.ps1
+```
+
+The script runs the test suite before publishing and will not create the ZIP if tests fail.
+The archive includes `README-FIRST.txt` for the person deploying it. Because the executable
+is not currently code-signed, Windows may show an unknown-publisher warning on a different
+computer.
+
+### Ubuntu Server installation
+
+Self-contained Ubuntu packages are produced for both 64-bit Raspberry Pi and Intel/AMD NUC
+hardware:
+
+```text
+artifacts/VisionaryRouter-ubuntu-linux-arm64.tar.gz  Raspberry Pi / ARM64
+artifacts/VisionaryRouter-ubuntu-linux-x64.tar.gz    Intel or AMD / x64
+```
+
+Copy the matching archive to the Ubuntu server, then run:
+
+```bash
+tar -xzf VisionaryRouter-ubuntu-linux-x64.tar.gz
+cd VisionaryRouter-ubuntu-linux-x64
+sudo bash install.sh
+```
+
+Replace `linux-x64` with `linux-arm64` for a Pi. The installer verifies the CPU architecture,
+asks for the Web UI port and administrator password, installs a hardened `systemd` service,
+and offers to open the port when UFW is active. No .NET runtime is required. Application data
+is preserved under `/var/lib/visionary-router` across upgrades and normal uninstalls.
+
+```bash
+sudo systemctl status visionary-router
+sudo journalctl -u visionary-router -f
+sudo systemctl restart visionary-router
+sudo visionary-router-uninstall
+```
+
+Create both tested archives on Windows with `./scripts/publish-ubuntu.ps1`.
+
+To change the Web UI port or reach the UI from a tablet or another PC, open
+**Diagnostics → Network Access**. Choose a port from 1024–65535, tick only the interface(s)
+that should serve the UI, set an administrator password when enabling LAN access, save, and
+restart Visionary Router. Localhost always remains enabled. For this machine, selecting
+Wi-Fi exposes `http://192.168.1.29:8088`; sign in with username `admin` and the password you
+set. Windows Firewall must also allow inbound TCP 8088 on that network. The UI intentionally
+does not create or broaden firewall rules on its own.
+
+Interface selections are stored by the stable Windows adapter ID, then resolved to the
+adapter's current IPv4 address at startup. This allows normal DHCP address changes without
+silently exposing every network. Network access uses Basic authentication over plain HTTP,
+so enable it only on trusted LANs. The legacy `Router:ListenOnAllInterfaces=true` and
+`Router:AdminPassword` configuration remains available for managed deployments.
+
+If the saved port is already occupied by another application at startup, Visionary Router
+automatically selects and saves the next available port instead of terminating. The console
+and Diagnostics page report the port actually in use. A firewall rule scoped to an old port
+must be updated separately.
 
 ## How routing works
 
@@ -212,14 +281,18 @@ it cannot be classified — set the type by hand. A bare `Duet` with no role let
 alone deliberately, since that hardware can be either.
 
 **Network interface.** A Windows PC in an AV rack typically has Ethernet, Wi-Fi, Hyper-V,
-WSL, and VPN adapters. Do not assume the AV control network is the first one — the
-Diagnostics tab lists them all with their addresses.
+WSL, and VPN adapters. Do not assume the AV control network is the first one — use
+**Diagnostics → Network Access** to select the intended adapter explicitly. Changes apply
+after an application restart. The rest of Diagnostics continues to list all active adapter
+addresses for troubleshooting.
 
 ## Not built yet
 
-Multicast discovery (`226.0.0.19`), decoder groups, presets, the matrix view, and Windows
-Service packaging. The Devices page now has an explicit IPv4 `/24` scan that finds and adds
-Visionary endpoints without duplicating devices already in the database.
+Multicast discovery (`226.0.0.19`), the matrix view, and Windows Service packaging. Ubuntu
+`systemd` service installation is implemented. Decoder
+groups and routing presets are implemented. The Devices page has an explicit IPv4 `/24`
+scan that finds and adds Visionary endpoints without duplicating devices already in the
+database.
 
 ## Reference
 
