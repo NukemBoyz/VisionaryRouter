@@ -1,0 +1,28 @@
+[Unit]
+Description=Visionary Router AV-over-IP Control Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=visionary-router
+Group=visionary-router
+WorkingDirectory=/opt/visionary-router
+EnvironmentFile=/etc/visionary-router/environment
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/lib/visionary-router/.net
+ExecStart=/opt/visionary-router/VisionaryRouter
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=20
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/visionary-router
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

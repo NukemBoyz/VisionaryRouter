@@ -10,8 +10,13 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>VisionaryRouter</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="README-FIRST.txt" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 
 </Project>
