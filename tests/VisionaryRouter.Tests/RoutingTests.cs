@@ -70,21 +70,50 @@ internal sealed class FakeTransport : IVisionaryTransport
                 VisionaryResponse.Parse("&STREAM.CONNECT=queue_next_switch&API.STATUS=SUCCESS")));
         }
 
+        if (request.TryGet("QUERY.VIDEO_TIMING", out _))
+        {
+            // On a decoder this reflects the incoming stream. The parking address carries no
+            // video, which is why the router uses it rather than another encoder.
+            var receiving = endpoint.StreamConnected
+                && !string.IsNullOrWhiteSpace(endpoint.StreamHost)
+                && endpoint.StreamHost != "0.0.0.0";
+
+            var timing = receiving ? "Timing Table: [1920]X[1080] [60]Hz" : "Not Available";
+
+            return Task.FromResult(VisionaryQueryResult.Ok(
+                VisionaryResponse.Parse($"&VIDEO.TIMING={timing}&QUERY.VIDEO_TIMING=OK&API.STATUS=SUCCESS_QUERY")));
+        }
+
         if (request.TryGet(VisionaryKeys.StreamConnect, out var connect) && connect == "FALSE")
         {
-            endpoint.StreamHost = string.Empty;
+            // STREAM.HOST deliberately survives a disconnect, as it does on real hardware.
+            // Clearing it here would hide the bug this fake exists to reproduce: the decoder
+            // keeps the address, so the next route to that same address is a no-op.
             endpoint.StreamConnected = false;
             return Task.FromResult(VisionaryQueryResult.Ok(
-                VisionaryResponse.Parse("&STREAM.CONNECT=FALSE&API.STATUS=SUCCESS")));
+                VisionaryResponse.Parse("&STREAM.CONNECT=STOP_STREAM&API.STATUS=SUCCESS")));
         }
 
         if (request.TryGet(VisionaryKeys.StreamHost, out var requested))
         {
-            if (!endpoint.RefuseToSwitch)
+            if (endpoint.RefuseToSwitch)
             {
-                endpoint.StreamHost = requested;
-                endpoint.StreamConnected = true;
+                return Task.FromResult(VisionaryQueryResult.Ok(
+                    VisionaryResponse.Parse("&STREAM.CONNECT=queue_next_switch&API.STATUS=SUCCESS")));
             }
+
+            // Firmware 2.3.152 only acts when the address actually changes, and reports
+            // SUCCESS while doing nothing. Asked for the source it already holds, it answers
+            // NO_CHANGE / ALREADY_CONNECTED - even when disconnected, which is what strands a
+            // decoder with the right STREAM.HOST and a dead stream.
+            if (string.Equals(endpoint.StreamHost, requested, StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(VisionaryQueryResult.Ok(VisionaryResponse.Parse(
+                    "&STREAM.HOST=NO_CHANGE&STREAM.CONNECT=ALREADY_CONNECTED&API.STATUS=SUCCESS")));
+            }
+
+            endpoint.StreamHost = requested;
+            endpoint.StreamConnected = true;
 
             return Task.FromResult(VisionaryQueryResult.Ok(
                 VisionaryResponse.Parse("&STREAM.CONNECT=queue_next_switch&API.STATUS=SUCCESS")));
@@ -111,7 +140,11 @@ public class RoutingServiceTests
     {
         VerifyDelay = TimeSpan.Zero,
         VerifyInterval = TimeSpan.Zero,
-        VerifyRetries = 2
+        VerifyRetries = 2,
+
+        // The fake endpoint switches instantly, so the settling waits only slow the suite.
+        // The retry and ordering behaviour is what is under test, not the wall-clock timing.
+        ReestablishPollInterval = TimeSpan.Zero
     };
 
     private static (RoutingService Routing, FakeTransport Transport) Build()
@@ -262,6 +295,92 @@ public class RoutingServiceTests
         Assert.Equal(RouteStatus.Failed, outcome.Status);
         Assert.Contains("reports no source", outcome.Error);
         Assert.DoesNotContain("following ,", outcome.Error);
+    }
+
+    [Fact]
+    public async Task Re_routing_to_the_same_source_after_a_clear_restores_video()
+    {
+        // The failure found on hardware: route, clear, then route the same encoder again. The
+        // decoder keeps STREAM.HOST, answers NO_CHANGE / ALREADY_CONNECTED with API.STATUS
+        // SUCCESS, and passes no video - while STREAM.HOST still reads correct, so the old
+        // verification called it a success and the screen stayed black.
+        var (routing, transport) = Build();
+        transport.AddDecoder("10.0.0.20");
+
+        var encoder = Encoder("10.0.0.10");
+        var decoder = Decoder("10.0.0.20", "North TV");
+
+        await routing.RouteAsync(encoder, [decoder]);
+        await routing.ClearAsync(decoder);
+
+        var result = await routing.RouteAsync(encoder, [decoder]);
+        var outcome = result.Results.Single();
+
+        Assert.Equal(RouteStatus.Verified, outcome.Status);
+        Assert.Equal("10.0.0.10", outcome.ReportedEncoderIp);
+
+        // The point of the fix: not merely set to the encoder, but actually receiving.
+        Assert.True(outcome.ReceivingVideo);
+    }
+
+    [Fact]
+    public async Task Forcing_a_re_establish_moves_the_decoder_away_and_back()
+    {
+        var (routing, transport) = Build();
+        transport.AddDecoder("10.0.0.20");
+
+        var encoder = Encoder("10.0.0.10");
+        var decoder = Decoder("10.0.0.20", "North TV");
+
+        await routing.RouteAsync(encoder, [decoder]);
+        await routing.ClearAsync(decoder);
+        transport.Sent.Clear();
+
+        await routing.RouteAsync(encoder, [decoder]);
+
+        var routed = transport.Sent
+            .Where(s => s.Command.Contains("STREAM.CONNECT=TRUE"))
+            .Select(s => s.Command)
+            .ToList();
+
+        // The address has to change for the endpoint to act, so the parking address is
+        // visited before returning to the encoder.
+        Assert.Contains(routed, c => c.Contains("STREAM.HOST=0.0.0.0"));
+        Assert.Contains(routed, c => c.Contains("STREAM.HOST=10.0.0.10"));
+        Assert.EndsWith("STREAM.HOST=10.0.0.10&VW.ACTIVE=FALSE&STREAM.CONNECT=TRUE&CMD=END", routed[^1]);
+    }
+
+    [Fact]
+    public async Task An_ordinary_route_to_a_new_source_does_not_bounce_through_the_parking_address()
+    {
+        // The re-establish is a repair, not part of every switch. Parking mid-route would put
+        // a black frame on the wall on every ordinary source change.
+        var (routing, transport) = Build();
+        transport.AddDecoder("10.0.0.20", initialSource: "10.0.0.11");
+
+        await routing.RouteAsync(Encoder("10.0.0.10"), [Decoder("10.0.0.20", "North TV")]);
+
+        Assert.DoesNotContain(transport.Sent, s => s.Command.Contains("STREAM.HOST=0.0.0.0"));
+    }
+
+    [Fact]
+    public async Task A_verified_route_reports_when_no_video_is_arriving()
+    {
+        // A decoder set to an encoder that is passing nothing verifies, but must not be
+        // reported as though a picture reached the display.
+        var (routing, transport) = Build();
+        var endpoint = transport.AddDecoder("10.0.0.20");
+
+        await routing.RouteAsync(Encoder("10.0.0.10"), [Decoder("10.0.0.20", "North TV")]);
+
+        // Stand in for a source with no input signal: set, but nothing coming through.
+        endpoint.StreamConnected = false;
+
+        var result = await routing.RouteAsync(Encoder("10.0.0.10"), [Decoder("10.0.0.20", "North TV")]);
+        var outcome = result.Results.Single();
+
+        Assert.Equal("10.0.0.10", outcome.ReportedEncoderIp);
+        Assert.NotNull(outcome.ReceivingVideo);
     }
 
     [Fact]

@@ -116,9 +116,15 @@ public sealed class SimulatedEndpoint
 
         if (command.Values.ContainsKey("QUERY.VIDEO_TIMING"))
         {
-            return _config.Type == SimulatedDeviceType.Encoder
-                ? $"&{VisionaryKeys.VideoTiming}=Timing Table: [1920]X[1080] [60]Hz&QUERY.VIDEO_TIMING=OK&{VisionaryKeys.ApiStatus}=SUCCESS_QUERY"
-                : $"&{VisionaryKeys.VideoTiming}=Not Available&QUERY.VIDEO_TIMING=OK&{VisionaryKeys.ApiStatus}=SUCCESS_QUERY";
+            // On a decoder this describes the stream coming in, so it has to follow the
+            // connection state rather than being a constant. That is what lets the router tell
+            // "set to a source" apart from "actually receiving a picture" - the distinction the
+            // wedged-decoder case turns on.
+            var timing = _config.Type == SimulatedDeviceType.Encoder || IsReceiving()
+                ? "Timing Table: [1920]X[1080] [60]Hz"
+                : "Not Available";
+
+            return $"&{VisionaryKeys.VideoTiming}={timing}&QUERY.VIDEO_TIMING=OK&{VisionaryKeys.ApiStatus}=SUCCESS_QUERY";
         }
 
         if (command.Values.ContainsKey("UNIT.FU"))
@@ -185,12 +191,44 @@ public sealed class SimulatedEndpoint
 
         lock (_stateLock)
         {
+            // Real 4-Series firmware (2.3.152) only acts when STREAM.HOST actually changes. Ask
+            // it for the source it is already set to and it answers
+            //     &STREAM.HOST=NO_CHANGE&STREAM.CONNECT=ALREADY_CONNECTED&API.STATUS=SUCCESS
+            // and does nothing at all - including after a STREAM.CONNECT=FALSE, which leaves the
+            // decoder holding the right STREAM.HOST with no video flowing. Reproduced here
+            // because that combination reports SUCCESS and verifies against STREAM.HOST, so
+            // without it the simulator would keep passing a case that fails on real hardware.
+            var effectiveHost = _pendingStreamHost ?? _streamHost;
+
+            if (string.Equals(effectiveHost, requestedHost, StringComparison.OrdinalIgnoreCase))
+            {
+                _log($"{_config.Name} ignored a route to {requestedHost} - already set to it");
+                return $"&{VisionaryKeys.StreamHost}=NO_CHANGE" +
+                       $"&{VisionaryKeys.StreamConnect}=ALREADY_CONNECTED" +
+                       $"&{VisionaryKeys.ApiStatus}=SUCCESS";
+            }
+
             _pendingStreamHost = requestedHost;
             _streamConnected = true;
             _pendingAppliesAtUtc = DateTime.UtcNow + _config.SwitchDelay;
         }
 
         return $"&{VisionaryKeys.StreamConnect}=queue_next_switch&{VisionaryKeys.ApiStatus}=SUCCESS";
+    }
+
+    /// <summary>
+    /// Whether this decoder currently has a picture: connected, and pointed at something real.
+    /// The parking address the router uses to force a re-establish carries no video, which is
+    /// the point of parking there rather than on another encoder.
+    /// </summary>
+    private bool IsReceiving()
+    {
+        lock (_stateLock)
+        {
+            return _streamConnected
+                && !string.IsNullOrWhiteSpace(_streamHost)
+                && _streamHost != "0.0.0.0";
+        }
     }
 
     private void ApplyPendingSwitch()

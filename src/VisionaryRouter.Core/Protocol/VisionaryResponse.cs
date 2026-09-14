@@ -40,6 +40,23 @@ public sealed class VisionaryResponse
     public bool IsSuccess =>
         ApiStatus is { } status && status.StartsWith("SUCCESS", StringComparison.Ordinal);
 
+    /// <summary>
+    /// True when a route command was accepted but changed nothing.
+    ///
+    /// Observed on D4200 firmware 2.3.152: re-routing a decoder to the encoder it is already
+    /// set to answers
+    ///     &amp;STREAM.HOST=NO_CHANGE&amp;STREAM.CONNECT=ALREADY_CONNECTED&amp;API.STATUS=SUCCESS
+    /// and the endpoint does nothing. After a preceding STREAM.CONNECT=FALSE that leaves the
+    /// decoder with the right STREAM.HOST and no video at all, because it still believes it is
+    /// connected and so declines to reconnect.
+    ///
+    /// API.STATUS is SUCCESS in that reply, and STREAM.HOST reads back correctly afterwards,
+    /// so neither is sufficient on its own to conclude a route took effect.
+    /// </summary>
+    public bool RouteWasNoOp =>
+        string.Equals(Get(VisionaryKeys.StreamHost), "NO_CHANGE", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(Get(VisionaryKeys.StreamConnect), "ALREADY_CONNECTED", StringComparison.OrdinalIgnoreCase);
+
     public string? Get(string key) => _values.TryGetValue(key, out var value) ? value : null;
 
     public bool TryGet(string key, out string value) => _values.TryGetValue(key, out value!);

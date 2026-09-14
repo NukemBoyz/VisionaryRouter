@@ -196,6 +196,17 @@ public sealed class VisionaryDeviceClient
         return encoder.VideoSignalPresent;
     }
 
+    /// <summary>
+    /// Whether a decoder is actually receiving video, as opposed to merely being set to a source.
+    ///
+    /// Same query as the encoder signal check - on a decoder VIDEO.TIMING describes the incoming
+    /// stream, and "Not Available" means nothing is arriving. This is the only reliable proof a
+    /// route took effect: STREAM.HOST is a setting and reads back correctly even when the
+    /// endpoint is wedged and passing no video.
+    /// </summary>
+    public Task<bool?> IsReceivingVideoAsync(Device decoder, CancellationToken cancellationToken = default) =>
+        ReadVideoSignalAsync(decoder, cancellationToken);
+
     private static string SummarizeTiming(string timing)
     {
         if (timing.Contains("Not Available", StringComparison.OrdinalIgnoreCase)) return "No signal";

@@ -26,6 +26,16 @@ public sealed record RouteResult
     public string? ReportedEncoderIp { get; init; }
     public string? Error { get; init; }
 
+    /// <summary>
+    /// Whether the decoder reports video actually arriving, or null if we could not tell.
+    ///
+    /// Separate from <see cref="Verified"/> on purpose. Verified means the decoder is set to
+    /// the requested encoder; this means a picture is reaching it. A false here with Verified
+    /// true is usually the source having no input signal rather than a routing failure, so it
+    /// is reported rather than treated as an error.
+    /// </summary>
+    public bool? ReceivingVideo { get; init; }
+
     public bool Success => Status is RouteStatus.Verified or RouteStatus.Accepted;
 }
 

@@ -117,6 +117,20 @@ public sealed class RoutingService
             return Fail(decoder, status, send.Error);
         }
 
+        // The endpoint can accept a route, report SUCCESS, and do nothing - it answers
+        // NO_CHANGE / ALREADY_CONNECTED when asked for the source it is already set to. After a
+        // clear that leaves the decoder with the correct STREAM.HOST and a dead stream, and
+        // because STREAM.HOST reads back correctly the verification below would call it good.
+        // Force a real re-establish instead.
+        if (send.Response?.RouteWasNoOp == true)
+        {
+            _logger.LogInformation(
+                "{Decoder} reported no change for {EncoderIp}; forcing the stream to re-establish",
+                decoder.Name, encoder.IpAddress);
+
+            await ForceReestablishAsync(decoder, encoder.IpAddress, cancellationToken);
+        }
+
         // Give the endpoint a moment before asking: the documented response to a switch is
         // 'queue_next_switch', so the decoder has accepted the command but has not acted yet.
         await Task.Delay(_options.VerifyDelay, cancellationToken);
@@ -130,9 +144,27 @@ public sealed class RoutingService
             if (string.Equals(reported, encoder.IpAddress, StringComparison.OrdinalIgnoreCase))
             {
                 decoder.StreamConnected = true;
-                _logger.LogInformation(
-                    "ROUTE VERIFIED {Decoder} STREAM.HOST={EncoderIp}",
-                    decoder.Name, encoder.IpAddress);
+
+                // STREAM.HOST only says what the decoder is set to. Ask whether video is
+                // actually arriving, because the two can disagree - that disagreement is the
+                // whole reason this check exists.
+                var receiving = await _client.IsReceivingVideoAsync(decoder, cancellationToken);
+
+                if (receiving == false)
+                {
+                    // Not reported as a failure: the commonest cause is the encoder having no
+                    // input signal, which is a source problem rather than a routing one. The
+                    // caller is given the fact and can say so.
+                    _logger.LogWarning(
+                        "{Decoder} is set to {EncoderIp} but reports no incoming video",
+                        decoder.Name, encoder.IpAddress);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "ROUTE VERIFIED {Decoder} STREAM.HOST={EncoderIp}",
+                        decoder.Name, encoder.IpAddress);
+                }
 
                 return new RouteResult
                 {
@@ -141,7 +173,8 @@ public sealed class RoutingService
                     Status = RouteStatus.Verified,
                     Commanded = true,
                     Verified = true,
-                    ReportedEncoderIp = reported
+                    ReportedEncoderIp = reported,
+                    ReceivingVideo = receiving
                 };
             }
 
@@ -172,6 +205,54 @@ public sealed class RoutingService
                 ? $"Decoder accepted the command but reports no source; expected {encoder.IpAddress}"
                 : $"Decoder is following {reported}, expected {encoder.IpAddress}"
         };
+    }
+
+    /// <summary>
+    /// Makes a decoder genuinely reconnect to a source it is already set to.
+    ///
+    /// The endpoint only acts on STREAM.HOST when the value changes, so the stream is moved to
+    /// a parking address and then back. Each step waits until the decoder reports the address
+    /// it was given: switches are queued, and issuing the second command while the first is
+    /// still in flight gets them coalesced - which on tested hardware left the decoder sitting
+    /// on the parking address with nothing on screen.
+    /// </summary>
+    private async Task ForceReestablishAsync(Device decoder, string encoderIp, CancellationToken cancellationToken)
+    {
+        var parking = _options.ReestablishVia;
+
+        var moved = await SendAndAwaitHostAsync(decoder, parking, cancellationToken);
+
+        if (!moved)
+        {
+            // Never reached the parking address, so sending the target now would be the same
+            // no-op we are trying to escape. Leave it for the verification loop to report.
+            _logger.LogWarning(
+                "{Decoder} did not move to the parking address {Parking}; cannot force a re-establish",
+                decoder.Name, parking);
+            return;
+        }
+
+        await SendAndAwaitHostAsync(decoder, encoderIp, cancellationToken);
+    }
+
+    /// <summary>Sends a route and waits until the decoder reports that address, or gives up.</summary>
+    private async Task<bool> SendAndAwaitHostAsync(Device decoder, string address, CancellationToken cancellationToken)
+    {
+        await _client.SendRouteAsync(decoder, address, cancellationToken);
+
+        for (var attempt = 0; attempt < Math.Max(1, _options.ReestablishPollAttempts); attempt++)
+        {
+            await Task.Delay(_options.ReestablishPollInterval, cancellationToken);
+
+            var reported = await _client.ReadCurrentSourceAsync(decoder, cancellationToken);
+
+            if (string.Equals(reported, address, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static RouteResult Fail(Device decoder, RouteStatus status, string? error) => new()
