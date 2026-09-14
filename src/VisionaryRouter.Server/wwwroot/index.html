@@ -14,6 +14,7 @@
         </div>
         <nav class="tabs">
             <button class="tab is-active" data-view="routing">Routing</button>
+            <button class="tab" data-view="operators">Operators</button>
             <button class="tab" data-view="devices">Devices</button>
             <button class="tab" data-view="diagnostics">Diagnostics</button>
         </nav>
@@ -73,6 +74,31 @@
             </div>
 
             <div class="results" id="route-results" hidden></div>
+        </section>
+
+        <!-- ------------------------------------------------------------------ -->
+        <section class="view" id="view-operators">
+            <div class="routing-grid operator-grid">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>Sources</h2>
+                        <span class="hint">Pick one</span>
+                    </div>
+                    <div class="list" id="operator-sources"></div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>Destinations</h2>
+                        <span class="hint">Pick one or more</span>
+                    </div>
+                    <div class="list" id="operator-destinations"></div>
+                </div>
+            </div>
+
+            <div class="operator-route-bar">
+                <button class="btn btn-primary btn-large" id="operator-route-btn" disabled>Route</button>
+            </div>
         </section>
 
         <!-- ------------------------------------------------------------------ -->
@@ -156,6 +182,36 @@
 
         <!-- ------------------------------------------------------------------ -->
         <section class="view" id="view-diagnostics">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Network access</h2>
+                    <span class="hint">Choose exactly where the Web UI listens</span>
+                </div>
+                <form class="network-access" id="network-access-form">
+                    <div>
+                        <strong>Available interfaces</strong>
+                        <p>Localhost always stays enabled. Tick only networks that should reach this control surface.</p>
+                        <div class="interface-list" id="network-interface-list"></div>
+                    </div>
+                    <div class="network-settings-fields">
+                        <label class="network-port">
+                            <span>Web UI port</span>
+                            <input type="number" id="network-port" min="1024" max="65535" required
+                                   inputmode="numeric" aria-describedby="network-port-help">
+                            <small id="network-port-help">Applied after restarting the application.</small>
+                        </label>
+                        <label class="network-password">
+                            <span>Administrator password</span>
+                            <input type="password" id="network-password" minlength="8"
+                                   placeholder="Set or change password" autocomplete="new-password">
+                            <small>Username: admin. Required before enabling any network interface.</small>
+                        </label>
+                    </div>
+                    <button class="btn btn-primary" type="submit" id="save-network-access">Save network access</button>
+                </form>
+                <div class="network-access-status" id="network-access-status" hidden></div>
+            </div>
+
             <div class="panel">
                 <div class="panel-head">
                     <h2>System</h2>

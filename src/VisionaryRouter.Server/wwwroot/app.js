@@ -34,6 +34,9 @@ const el = {
     routeBtn: document.getElementById('route-btn'),
     routeSummary: document.getElementById('route-summary'),
     routeResults: document.getElementById('route-results'),
+    operatorSources: document.getElementById('operator-sources'),
+    operatorDestinations: document.getElementById('operator-destinations'),
+    operatorRouteBtn: document.getElementById('operator-route-btn'),
     selectAll: document.getElementById('select-all'),
     selectNone: document.getElementById('select-none'),
     clearAllRoutes: document.getElementById('clear-all-routes'),
@@ -51,6 +54,12 @@ const el = {
     decoderTable: document.getElementById('decoder-table'),
     unknownTable: document.getElementById('unknown-table'),
     unclassifiedPanel: document.getElementById('unclassified-panel'),
+    networkAccessForm: document.getElementById('network-access-form'),
+    networkInterfaceList: document.getElementById('network-interface-list'),
+    networkPort: document.getElementById('network-port'),
+    networkPassword: document.getElementById('network-password'),
+    networkAccessStatus: document.getElementById('network-access-status'),
+    saveNetworkAccess: document.getElementById('save-network-access'),
     statusGrid: document.getElementById('status-grid'),
     log: document.getElementById('log')
 };
@@ -168,6 +177,63 @@ function renderRouting() {
 
     renderRouteBar();
     renderRoutingTools();
+    renderOperatorView();
+}
+
+function renderOperatorView() {
+    const visible = device => device.enabled && device.onlineState !== 'Offline';
+    const sources = encoders().filter(visible);
+    const destinations = decoders().filter(visible);
+
+    el.operatorSources.replaceChildren(...(sources.length
+        ? sources.map(renderOperatorSourceCard)
+        : [h('div', { class: 'empty', text: 'No available sources.' })]));
+    el.operatorDestinations.replaceChildren(...(destinations.length
+        ? destinations.map(renderOperatorDestinationCard)
+        : [h('div', { class: 'empty', text: 'No available destinations.' })]));
+}
+
+function renderOperatorSourceCard(device) {
+    const selected = state.selectedSource === device.id;
+    return h('div', {
+        class: `card card-source operator-card${selected ? ' is-selected' : ''}`,
+        style: `--card-colour: ${sourceColour(device.colorIndex)}`
+    }, h('button', {
+        class: 'card-select', type: 'button', 'aria-pressed': selected,
+        onclick: () => {
+            state.selectedSource = selected ? null : device.id;
+            renderRouting();
+        }
+    },
+        h('span', { class: `state-dot state-${device.onlineState}` }),
+        h('span', { class: 'card-body' },
+            h('div', { class: 'card-name', text: device.name }),
+            h('div', { class: 'card-sub', text: device.ipAddress }))));
+}
+
+function renderOperatorDestinationCard(device) {
+    const selected = state.selectedDestinations.has(device.id);
+    let current;
+    if (device.currentSourceName) current = `Showing ${device.currentSourceName}`;
+    else if (device.currentEncoderIp) current = `Showing ${device.currentEncoderIp}`;
+    else current = 'No source reported';
+
+    return h('div', {
+        class: `card card-dest operator-card${selected ? ' is-selected' : ''}`,
+        style: `--card-colour: ${sourceColour(device.routedSourceColorIndex)}`
+    }, h('button', {
+        class: 'card-select dest-select', type: 'button', 'aria-pressed': selected,
+        onclick: () => {
+            if (selected) state.selectedDestinations.delete(device.id);
+            else state.selectedDestinations.add(device.id);
+            renderRouting();
+        }
+    },
+        h('span', { class: 'check', text: '✓' }),
+        h('span', { class: `state-dot state-${device.onlineState}` }),
+        h('span', { class: 'card-body' },
+            h('div', { class: 'card-name', text: device.name }),
+            h('div', { class: 'card-sub', text: current }))));
 }
 
 function renderSourceCard(device) {
@@ -301,6 +367,8 @@ function renderRouteBar() {
     }
 
     el.routeBtn.textContent = count > 1 ? `Route to ${count}` : 'Route';
+    el.operatorRouteBtn.disabled = !source || count === 0;
+    el.operatorRouteBtn.textContent = count > 1 ? `Route to ${count}` : 'Route';
 }
 
 async function performRoute() {
@@ -311,6 +379,8 @@ async function performRoute() {
 
     el.routeBtn.disabled = true;
     el.routeBtn.textContent = 'Routing…';
+    el.operatorRouteBtn.disabled = true;
+    el.operatorRouteBtn.textContent = 'Routing…';
 
     log(`Routing ${source.name} to ${destinationIds.length} destination(s)`);
 
@@ -635,6 +705,78 @@ async function remove(device) {
 
 // --- diagnostics ------------------------------------------------------------
 
+async function refreshNetworkSettings() {
+    try {
+        const settings = await api('GET', '/api/network/settings');
+        el.networkInterfaceList.replaceChildren(...settings.interfaces.map(item =>
+            h('label', { class: 'interface-option' },
+                h('input', {
+                    type: 'checkbox',
+                    value: item.id,
+                    checked: item.selected
+                }),
+                h('span', {},
+                    h('strong', { text: item.name }),
+                    h('small', { text: `${item.address} · ${item.description}` }),
+                    item.active ? h('em', { text: 'Active now' }) : null))));
+
+        el.networkPassword.placeholder = settings.passwordConfigured
+            ? 'Leave blank to keep current password'
+            : 'At least 8 characters';
+        el.networkPort.value = settings.webPort;
+
+        el.networkAccessStatus.hidden = false;
+        el.networkAccessStatus.className = 'network-access-status';
+        if (settings.restartRequired) {
+            el.networkAccessStatus.textContent =
+                `Saved settings are waiting for restart. Active port: ${settings.activeWebPort}; ` +
+                `after restart: ${settings.webPort}.`;
+        } else if (settings.portAutomaticallySelected) {
+            el.networkAccessStatus.textContent =
+                `The requested port was busy, so Visionary Router moved to ${settings.activeWebPort}. ` +
+                `${settings.note}`;
+        } else {
+            el.networkAccessStatus.textContent = `Local access: ${settings.localhost}. ${settings.note}`;
+        }
+    } catch (error) {
+        el.networkAccessStatus.hidden = false;
+        el.networkAccessStatus.className = 'network-access-status is-error';
+        el.networkAccessStatus.textContent = error.message;
+    }
+}
+
+async function saveNetworkSettings(event) {
+    event.preventDefault();
+    const interfaceIds = [...el.networkInterfaceList.querySelectorAll('input:checked')].map(input => input.value);
+    const webPort = Number.parseInt(el.networkPort.value, 10);
+    el.saveNetworkAccess.disabled = true;
+    el.saveNetworkAccess.textContent = 'Saving…';
+
+    try {
+        const result = await api('POST', '/api/network/settings', {
+            interfaceIds,
+            webPort,
+            newPassword: el.networkPassword.value || null
+        });
+        el.networkPassword.value = '';
+        el.networkAccessStatus.hidden = false;
+        el.networkAccessStatus.className = 'network-access-status is-pending';
+        el.networkAccessStatus.textContent = result.urls.length
+            ? `${result.message} New address${result.urls.length === 1 ? '' : 'es'}: ${result.urls.join(', ')}`
+            : `${result.message} Network access will be disabled; localhost remains available.`;
+        log(`Network settings saved for Web UI port ${result.webPort}; restart required`, 'warn');
+        await refreshNetworkSettings();
+    } catch (error) {
+        el.networkAccessStatus.hidden = false;
+        el.networkAccessStatus.className = 'network-access-status is-error';
+        el.networkAccessStatus.textContent = error.message;
+        log(error.message, 'fail');
+    } finally {
+        el.saveNetworkAccess.disabled = false;
+        el.saveNetworkAccess.textContent = 'Save network access';
+    }
+}
+
 async function refreshStatus() {
     try {
         const status = await api('GET', '/api/system/status');
@@ -685,7 +827,15 @@ function connect() {
         }
 
         renderRouting();
-        renderDevices();
+
+        // Polling pushes device snapshots while an operator may be halfway through typing a
+        // friendly name. Rebuilding the table replaces the focused <input>, which loses the
+        // cursor and leaves a partially entered name behind. Keep the current editor intact;
+        // its blur/change handler persists the completed value and the following SSE update
+        // redraws the table normally.
+        if (!document.activeElement?.classList.contains('name-input')) {
+            renderDevices();
+        }
     });
 
     events.addEventListener('error', () => {
@@ -705,11 +855,15 @@ for (const tab of document.querySelectorAll('.tab')) {
         tab.classList.add('is-active');
         document.getElementById('view-' + tab.dataset.view).classList.add('is-active');
 
-        if (tab.dataset.view === 'diagnostics') refreshStatus();
+        if (tab.dataset.view === 'diagnostics') {
+            refreshStatus();
+            refreshNetworkSettings();
+        }
     });
 }
 
 el.routeBtn.addEventListener('click', performRoute);
+el.operatorRouteBtn.addEventListener('click', performRoute);
 
 if (document.fullscreenEnabled && document.documentElement.requestFullscreen) {
     el.fullscreenBtn.addEventListener('click', toggleFullscreen);
@@ -741,6 +895,7 @@ el.saveGroup.addEventListener('click', saveGroup);
 el.savePreset.addEventListener('click', savePreset);
 
 el.scanDevices.addEventListener('click', scanAndAddDevices);
+el.networkAccessForm.addEventListener('submit', saveNetworkSettings);
 
 el.addForm.addEventListener('submit', async event => {
     event.preventDefault();

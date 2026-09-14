@@ -14,26 +14,105 @@ var builder = WebApplication.CreateBuilder(args);
 // Configuration
 // ---------------------------------------------------------------------------
 
-var webPort = builder.Configuration.GetValue("Router:WebPort", 8088);
 var listenOnAllInterfaces = builder.Configuration.GetValue("Router:ListenOnAllInterfaces", false);
+var initialListenOnAllInterfaces = builder.Configuration.GetValue("Router:InitialListenOnAllInterfaces", false);
 var openBrowser = builder.Configuration.GetValue("Router:OpenBrowserOnStart", true);
 var adminPassword = builder.Configuration["Router:AdminPassword"];
+var adminPasswordFile = builder.Configuration["Router:AdminPasswordFile"];
+if (string.IsNullOrWhiteSpace(adminPassword) && !string.IsNullOrWhiteSpace(adminPasswordFile))
+{
+    try
+    {
+        adminPassword = File.ReadAllText(adminPasswordFile).TrimEnd('\r', '\n');
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException(
+            $"Could not read the administrator password file '{adminPasswordFile}'.", ex);
+    }
+}
+var configuredDefaultPort = builder.Configuration.GetValue("Router:WebPort", WebPortSelection.DefaultPort);
+if (!WebPortSelection.IsValid(configuredDefaultPort))
+{
+    configuredDefaultPort = WebPortSelection.DefaultPort;
+}
 
-if (listenOnAllInterfaces && string.IsNullOrWhiteSpace(adminPassword))
+var dataDirectory = ResolveDataDirectory(builder.Configuration["Router:DataDirectory"]);
+var databasePath = Path.Combine(dataDirectory, "router.db");
+var bootstrapStore = new DeviceStore(databasePath);
+bootstrapStore.Initialize();
+
+const string selectedInterfacesKey = "WebSelectedInterfaceIds";
+const string passwordHashKey = "AdminPasswordHash";
+const string webPortKey = "WebPort";
+const string activeWebPortKey = "ActiveWebPort";
+const string networkSettingsConfiguredKey = "NetworkSettingsConfigured";
+var requestedWebPort = WebPortSelection.ParseOrDefault(
+    bootstrapStore.GetSetting(webPortKey), configuredDefaultPort);
+
+// Double-clicking the portable app twice should feel like reopening it, not like a failed
+// launch. Keep one instance per signed-in Windows session; a later launch opens the existing
+// UI and exits before it can collide on the web port or touch the database.
+using var instanceMutex = new Mutex(true, @"Local\VisionaryRouter", out var isFirstInstance);
+if (!isFirstInstance)
+{
+    try
+    {
+        if (openBrowser)
+        {
+            var activePort = WebPortSelection.ParseOrDefault(
+                bootstrapStore.GetSetting(activeWebPortKey), requestedWebPort);
+            Process.Start(new ProcessStartInfo($"http://localhost:{activePort}") { UseShellExecute = true });
+        }
+    }
+    catch
+    {
+        // The already-running instance remains usable even if Windows cannot open a browser.
+    }
+
+    return;
+}
+
+var webPort = WebPortSelection.FindAvailable(requestedWebPort);
+var portAutomaticallySelected = webPort != requestedWebPort;
+if (portAutomaticallySelected)
+{
+    bootstrapStore.SetSetting(webPortKey, webPort.ToString());
+}
+bootstrapStore.SetSetting(activeWebPortKey, webPort.ToString());
+
+var selectedInterfaceIds = JsonSerializer.Deserialize<string[]>(
+    bootstrapStore.GetSetting(selectedInterfacesKey) ?? "[]") ?? [];
+var availableInterfaces = NetworkInterfaces();
+var selectedAddresses = availableInterfaces
+    .Where(item => selectedInterfaceIds.Contains(item.Id, StringComparer.OrdinalIgnoreCase))
+    .Select(item => item.Address)
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+var passwordHash = bootstrapStore.GetSetting(passwordHashKey) ??
+    (string.IsNullOrWhiteSpace(adminPassword) ? null : PasswordCredential.Hash(adminPassword));
+var networkSettingsConfigured = string.Equals(
+    bootstrapStore.GetSetting(networkSettingsConfiguredKey), "true", StringComparison.OrdinalIgnoreCase);
+var bindAllInterfaces = listenOnAllInterfaces ||
+    (initialListenOnAllInterfaces && !networkSettingsConfigured);
+
+listenOnAllInterfaces = bindAllInterfaces || selectedAddresses.Length > 0;
+
+if (listenOnAllInterfaces && string.IsNullOrWhiteSpace(passwordHash))
 {
     throw new InvalidOperationException(
-        "Router:ListenOnAllInterfaces requires Router:AdminPassword. " +
-        "Set the Router__AdminPassword environment variable before exposing the UI to the LAN.");
+        "Network interface access requires an administrator password. " +
+        "Configure it from Diagnostics before enabling an interface.");
 }
 
 // Loopback by default. Serving the UI to the whole network is useful for a wall tablet, but
 // that should be a decision someone made, not something that happens because the app ran.
-builder.WebHost.UseUrls(listenOnAllInterfaces
-    ? $"http://0.0.0.0:{webPort}"
-    : $"http://localhost:{webPort}");
-
-var dataDirectory = ResolveDataDirectory();
-var databasePath = Path.Combine(dataDirectory, "router.db");
+var webUrls = bindAllInterfaces
+    ? [$"http://0.0.0.0:{webPort}"]
+    : new[] { $"http://localhost:{webPort}" }
+        .Concat(selectedAddresses.Select(address => $"http://{address}:{webPort}"))
+        .ToArray();
+builder.WebHost.UseUrls(webUrls);
 
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
@@ -49,7 +128,8 @@ builder.Services.AddSingleton<IVisionaryTransport, VisionaryUdpTransport>();
 builder.Services.AddSingleton<VisionaryDeviceClient>();
 builder.Services.AddSingleton<RoutingService>();
 
-builder.Services.AddSingleton(new DeviceStore(databasePath));
+builder.Services.AddSingleton(bootstrapStore);
+builder.Services.AddSingleton(new BasicAuthenticationOptions(passwordHash));
 builder.Services.AddSingleton<DeviceRegistry>();
 builder.Services.AddSingleton<EventStream>();
 builder.Services.AddSingleton<DiscoveryService>();
@@ -68,16 +148,19 @@ var logger = app.Services.GetRequiredService<ILogger<Program>>();
 var store = app.Services.GetRequiredService<DeviceStore>();
 var registry = app.Services.GetRequiredService<DeviceRegistry>();
 
-store.Initialize();
 registry.Load();
 
 logger.LogInformation("Database: {Path}", databasePath);
 logger.LogInformation("Loaded {Count} device(s)", registry.All().Count);
-
-if (!string.IsNullOrWhiteSpace(adminPassword))
+if (portAutomaticallySelected)
 {
-    app.UseMiddleware<BasicAuthenticationMiddleware>(adminPassword);
+    logger.LogWarning(
+        "Web UI port {RequestedPort} was already in use. Using and saving port {WebPort} instead.",
+        requestedWebPort,
+        webPort);
 }
+
+app.UseMiddleware<BasicAuthenticationMiddleware>();
 
 app.UseDefaultFiles();
 
@@ -482,6 +565,83 @@ app.MapPost("/api/presets/{id:guid}/recall", async (
 // Live updates and diagnostics
 // ---------------------------------------------------------------------------
 
+app.MapGet("/api/network/settings", (DeviceStore settings) =>
+{
+    var savedIds = JsonSerializer.Deserialize<string[]>(settings.GetSetting(selectedInterfacesKey) ?? "[]") ?? [];
+    var savedPasswordHash = settings.GetSetting(passwordHashKey) ?? passwordHash;
+    var savedWebPort = WebPortSelection.ParseOrDefault(settings.GetSetting(webPortKey), webPort);
+    var interfaces = NetworkInterfaces().Select(item => new
+    {
+        item.Id,
+        item.Name,
+        item.Description,
+        item.Address,
+        selected = savedIds.Contains(item.Id, StringComparer.OrdinalIgnoreCase),
+        active = selectedInterfaceIds.Contains(item.Id, StringComparer.OrdinalIgnoreCase)
+    });
+
+    return Results.Ok(new
+    {
+        interfaces,
+        localhost = $"http://localhost:{webPort}",
+        webPort = savedWebPort,
+        activeWebPort = webPort,
+        portAutomaticallySelected,
+        passwordConfigured = !string.IsNullOrWhiteSpace(savedPasswordHash),
+        passwordProtectionActive = !string.IsNullOrWhiteSpace(passwordHash),
+        restartRequired = !savedIds.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .SetEquals(selectedInterfaceIds) ||
+            !string.Equals(savedPasswordHash, passwordHash, StringComparison.Ordinal) ||
+            savedWebPort != webPort,
+        note = "Windows Firewall must allow inbound TCP on the web UI port for selected interfaces."
+    });
+});
+
+app.MapPost("/api/network/settings", (NetworkSettingsRequest request, DeviceStore settings) =>
+{
+    var requestedIds = (request.InterfaceIds ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    var requestedPort = request.WebPort ??
+        WebPortSelection.ParseOrDefault(settings.GetSetting(webPortKey), webPort);
+    if (!WebPortSelection.IsValid(requestedPort))
+        return Results.BadRequest(new
+        {
+            error = $"The Web UI port must be between {WebPortSelection.MinimumPort} and {WebPortSelection.MaximumPort}"
+        });
+
+    var available = NetworkInterfaces();
+    var availableIds = available.Select(item => item.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    if (requestedIds.Any(id => !availableIds.Contains(id)))
+        return Results.BadRequest(new { error = "One or more selected interfaces are no longer available" });
+
+    var existingHash = settings.GetSetting(passwordHashKey) ?? passwordHash;
+    if (requestedIds.Length > 0 && string.IsNullOrWhiteSpace(existingHash) && string.IsNullOrWhiteSpace(request.NewPassword))
+        return Results.BadRequest(new { error = "Set an administrator password before enabling network access" });
+
+    if (!string.IsNullOrWhiteSpace(request.NewPassword))
+    {
+        if (request.NewPassword.Length < 8)
+            return Results.BadRequest(new { error = "The administrator password must be at least 8 characters" });
+        settings.SetSetting(passwordHashKey, PasswordCredential.Hash(request.NewPassword));
+    }
+
+    settings.SetSetting(selectedInterfacesKey, JsonSerializer.Serialize(requestedIds));
+    settings.SetSetting(webPortKey, requestedPort.ToString());
+    settings.SetSetting(networkSettingsConfiguredKey, "true");
+    var urls = available.Where(item => requestedIds.Contains(item.Id, StringComparer.OrdinalIgnoreCase))
+        .Select(item => $"http://{item.Address}:{requestedPort}")
+        .ToArray();
+
+    return Results.Ok(new
+    {
+        saved = true,
+        restartRequired = true,
+        webPort = requestedPort,
+        localhost = $"http://localhost:{requestedPort}",
+        urls,
+        message = "Settings saved. Restart Visionary Router to apply the Web UI port and listening interfaces."
+    });
+});
+
 app.MapGet("/api/events", async (HttpContext context, EventStream events, DeviceRegistry devices) =>
 {
     context.Response.Headers.ContentType = "text/event-stream";
@@ -519,7 +679,8 @@ app.MapGet("/api/system/status", (DeviceRegistry devices, VisionaryTransportOpti
         host = Environment.MachineName,
         webPort,
         listenOnAllInterfaces,
-        passwordProtected = !string.IsNullOrWhiteSpace(adminPassword),
+        passwordProtected = !string.IsNullOrWhiteSpace(passwordHash),
+        listeningUrls = webUrls,
         controlPort = transport.Port,
         databasePath,
         deviceCount = all.Count,
@@ -556,8 +717,15 @@ static DeviceType ParseType(string? type) => type?.Trim().ToLowerInvariant() swi
     _ => DeviceType.Unknown
 };
 
-static string ResolveDataDirectory()
+static string ResolveDataDirectory(string? configuredPath)
 {
+    if (!string.IsNullOrWhiteSpace(configuredPath))
+    {
+        var explicitPath = Path.GetFullPath(configuredPath);
+        Directory.CreateDirectory(explicitPath);
+        return explicitPath;
+    }
+
     // ProgramData is where this belongs on a machine running the router as a service. If it
     // cannot be created - locked-down machine, user without rights - fall back to the user's
     // own app data rather than refusing to start.
@@ -581,17 +749,15 @@ static string ResolveDataDirectory()
     }
 }
 
-static object[] NetworkInterfaces() =>
+static NetworkInterfaceView[] NetworkInterfaces() =>
     System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
         .Where(nic => nic.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up)
         .SelectMany(nic => nic.GetIPProperties().UnicastAddresses
-            .Where(addr => addr.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-            .Select(addr => (object)new
-            {
-                name = nic.Name,
-                description = nic.Description,
-                address = addr.Address.ToString()
-            }))
+            .Where(addr => addr.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                           !IPAddress.IsLoopback(addr.Address) &&
+                           !addr.Address.ToString().StartsWith("169.254.", StringComparison.Ordinal))
+            .Select(addr => new NetworkInterfaceView(
+                nic.Id, nic.Name, nic.Description, addr.Address.ToString())))
         .ToArray();
 
 static void LaunchBrowser(string url, ILogger logger)
@@ -624,3 +790,5 @@ internal sealed record DiscoveryRequest(string Subnet);
 internal sealed record DeviceOrderRequest(string Type, Guid[] DeviceIds);
 internal sealed record NamedDecoderSetRequest(string Name, Guid[] DecoderIds);
 internal sealed record PresetRequest(string Name, PresetRoute[] Routes);
+internal sealed record NetworkSettingsRequest(string[]? InterfaceIds, string? NewPassword, int? WebPort);
+internal sealed record NetworkInterfaceView(string Id, string Name, string Description, string Address);

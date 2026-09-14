@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VisionaryRouter.Core\VisionaryRouter.Core.csproj" />
+    <ProjectReference Include="..\..\src\VisionaryRouter.Server\VisionaryRouter.Server.csproj" />
   </ItemGroup>
 
 </Project>

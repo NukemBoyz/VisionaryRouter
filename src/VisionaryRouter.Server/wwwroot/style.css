@@ -409,6 +409,18 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 .route-summary { color: var(--text-dim); flex: 1; }
 .route-summary strong { color: var(--text); }
 
+.operator-route-bar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+.operator-route-bar .btn { min-width: 180px; }
+.operator-card { cursor: default; }
+
 @media (max-width: 640px) {
     .topbar {
         height: auto;
@@ -420,8 +432,8 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
 
     .brand { margin-right: auto; }
     .brand h1 { font-size: 16px; }
-    .tabs { order: 3; width: 100%; margin-left: 0; }
-    .tab { flex: 1; padding: 9px 8px; }
+    .tabs { order: 3; width: 100%; margin-left: 0; gap: 2px; }
+    .tab { flex: 1; min-width: 0; padding: 9px 4px; font-size: 13px; }
     .fullscreen-label { display: none; }
     .fullscreen-btn { padding-inline: 9px; }
     .connection { margin-left: 2px; }
@@ -647,6 +659,45 @@ table.devices tr:last-child td { border-bottom: 0; }
 .name-input:hover { border-color: var(--border); }
 
 /* --- diagnostics --------------------------------------------------------- */
+
+.network-access {
+    display: grid;
+    grid-template-columns: minmax(300px, 1.5fr) minmax(260px, 1fr) auto;
+    gap: 18px;
+    align-items: end;
+    padding: 18px;
+}
+
+.network-access p { margin: 3px 0 12px; color: var(--text-dim); font-size: 13px; }
+.interface-list { display: grid; gap: 7px; }
+.interface-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 11px;
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+}
+.interface-option input { flex: 0 0 auto; }
+.interface-option > span { min-width: 0; }
+.interface-option strong, .interface-option small { display: block; }
+.interface-option small { color: var(--text-dim); overflow-wrap: anywhere; }
+.interface-option em { display: inline-block; margin-top: 3px; color: var(--ok); font-size: 11px; font-style: normal; }
+.network-settings-fields { display: grid; gap: 13px; }
+.network-password, .network-port { display: flex; flex-direction: column; gap: 6px; }
+.network-password span, .network-port span { color: var(--text-dim); font-size: 13px; }
+.network-password small, .network-port small { color: var(--text-dim); font-size: 11px; }
+.network-port input { width: 100%; }
+.network-access-status { padding: 11px 18px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 13px; }
+.network-access-status.is-error { color: var(--fail); }
+.network-access-status.is-pending { color: var(--warn); }
+
+@media (max-width: 900px) {
+    .network-access { grid-template-columns: 1fr; align-items: stretch; }
+    .network-access .btn { justify-self: start; }
+}
 
 .status-grid {
     display: grid;
