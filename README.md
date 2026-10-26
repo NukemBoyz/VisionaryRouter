@@ -49,7 +49,35 @@ tiles automatically reflow and resize for desktop, landscape/portrait tablets, a
 The **Operators** tab is the minimal day-to-day surface: source cards, destination cards,
 and a Route button only. Advanced controls remain on the full Routing and Devices tabs.
 
-### Running without installing anything
+### Recommended Windows installation
+
+Run `artifacts/VisionaryRouter-Setup-win-x64.exe`. The guided installer is self-contained and
+does not require .NET, Node, SQLite, or another runtime. It:
+
+- installs under Program Files and runs Visionary Router automatically as a Windows Service,
+- asks for the Web UI port,
+- optionally enables password-protected access from phones and tablets,
+- creates an inbound TCP firewall rule limited to Windows Private networks and the local subnet,
+- creates Start Menu and optional desktop shortcuts, and
+- cleanly removes the service, firewall rule, shortcuts, and application files on uninstall.
+
+Saved devices, groups, presets, and settings live under `C:\ProgramData\VisionaryRouter`.
+The uninstaller asks whether to remove that data; keeping it allows a later reinstall or
+upgrade to retain the system configuration. Network access uses plain HTTP Basic
+authentication and should only be enabled on a trusted AV/control LAN.
+
+Create a tested installer and portable ZIP from the repository root with:
+
+```powershell
+./scripts/publish-windows.ps1 -Version 1.0.0
+```
+
+The release script runs all tests before publishing. Inno Setup 6 is needed only on the
+developer machine that creates the installer. The deployed PC needs no development tools.
+Because the installer is not currently code-signed, Windows may show an unknown-publisher
+warning.
+
+### Portable Windows version
 
 Use the self-contained Windows x64 ZIP in `artifacts/VisionaryRouter-win-x64.zip`. Extract
 the complete archive and double-click `VisionaryRouter.exe`; the browser opens automatically.
@@ -58,16 +86,9 @@ console window open while the router is running and close it to stop the applica
 Launching `VisionaryRouter.exe` again while it is already running reopens the existing Web UI
 and exits the duplicate cleanly instead of failing because port 8088 is already in use.
 
-Create a fresh tested package from the repository root with:
-
-```powershell
-./scripts/publish-windows.ps1
-```
-
-The script runs the test suite before publishing and will not create the ZIP if tests fail.
-The archive includes `README-FIRST.txt` for the person deploying it. Because the executable
-is not currently code-signed, Windows may show an unknown-publisher warning on a different
-computer.
+The release script above also creates this portable ZIP. Use
+`./scripts/publish-windows.ps1 -SkipInstaller` when only the ZIP is needed. The archive
+includes `README-FIRST.txt` for the person deploying it.
 
 ### Ubuntu Server installation
 
@@ -101,13 +122,14 @@ sudo visionary-router-uninstall
 
 Create both tested archives on Windows with `./scripts/publish-ubuntu.ps1`.
 
-To change the Web UI port or reach the UI from a tablet or another PC, open
+For a portable deployment, change the Web UI port or enable access from another device under
 **Diagnostics → Network Access**. Choose a port from 1024–65535, tick only the interface(s)
 that should serve the UI, set an administrator password when enabling LAN access, save, and
 restart Visionary Router. Localhost always remains enabled. For this machine, selecting
 Wi-Fi exposes `http://192.168.1.29:8088`; sign in with username `admin` and the password you
-set. Windows Firewall must also allow inbound TCP 8088 on that network. The UI intentionally
-does not create or broaden firewall rules on its own.
+set. Windows Firewall must also allow inbound TCP 8088 on that network. The guided Windows
+installer can create that firewall rule; the portable application does not modify the
+firewall itself.
 
 Interface selections are stored by the stable Windows adapter ID, then resolved to the
 adapter's current IPv4 address at startup. This allows normal DHCP address changes without

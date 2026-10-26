@@ -1,8 +1,8 @@
 # Visionary Router — Implementation Handoff
 
 **Canonical repository:** `C:\Users\Admin\Documents\Programming\VisionaryRouter`
-**Last audited:** 2026-09-14
-**Audited commit before this documentation update:** `c816c92` (`master`, since renamed `main`)
+**Last audited:** 2026-10-25
+**Audited commit before this documentation update:** `2729806` (`main`)
 **Hardware status:** initial E4200/D4200 query and routing validation completed; visual and full acceptance testing remain. The clear-then-reroute fix of 2026-09-14 is simulator-tested only - the bench link dropped before it could be confirmed on the decoders that showed the fault.
 
 This file is the continuity point for Codex, Claude, or another engineer. Read it with `README.md` before changing the project. Treat the code and tests as authoritative when an older planning document disagrees.
@@ -35,6 +35,9 @@ Implemented:
 - Diagnostics UI for selecting specific listening interfaces by stable Windows adapter ID
 - SQLite-backed Web UI port selection with automatic startup collision recovery
 - Tested self-contained Windows x64 ZIP requiring no installed .NET runtime or installer
+- Guided self-contained Windows x64 installer with Windows Service integration, port and LAN
+  access prompts, password-file ACLs, a Private/LocalSubnet firewall rule, shortcuts, upgrade
+  handling, and data-preserving uninstall
 - Self-contained Ubuntu x64/ARM64 packages with interactive systemd installation
 - Credential redaction at the protocol boundary
 
@@ -44,14 +47,13 @@ Not implemented:
 - Visual confirmation that a routed display actually changes picture
 - Multicast discovery on `226.0.0.19`
 - Traditional matrix view
-- Windows Service integration and installer
 - Backup/export/import
 - HTTPS (basic authentication exists; the transport is still plain HTTP)
 - Capability profiles for distinct 4-Series/5-Series/X5K behaviors
 
 ## Verified Build State
 
-On 2026-09-13, using Windows x64 and SDK `10.0.400`:
+On 2026-10-25, using Windows x64 and SDK `10.0.400`:
 
 ```text
 dotnet build VisionaryRouter.slnx --configuration Release --no-restore
@@ -61,7 +63,8 @@ dotnet test VisionaryRouter.slnx --configuration Release
 Passed: 97, Failed: 0, Skipped: 0.
 ```
 
-The repository was clean before this handoff/README documentation change.
+The Windows installer also compiled successfully with Inno Setup 6.7.3. The repository was
+clean at `2729806` before the installer/service implementation began.
 
 ## Runtime and Packaging Decision
 
@@ -71,10 +74,13 @@ does not need an installed .NET runtime. Preserve `net10.0` unless the owner exp
 for a coordinated retarget and full regression pass.
 
 `scripts/publish-windows.ps1` runs Release tests, publishes using
-`Properties/PublishProfiles/Windows-x64.pubxml`, and creates
-`artifacts/VisionaryRouter-win-x64.zip`. The package contains the single-file
-`VisionaryRouter.exe`, static Web UI assets, configuration, and `README-FIRST.txt`. It is
-portable rather than installed and is not currently code-signed.
+`Properties/PublishProfiles/Windows-x64.pubxml`, and creates both
+`artifacts/VisionaryRouter-win-x64.zip` and
+`artifacts/VisionaryRouter-Setup-win-x64.exe`. The installer is built with Inno Setup 6,
+runs the same self-contained executable as an automatic Windows Service, and can configure
+the Web UI port, initial password-protected LAN binding, and a program-scoped TCP firewall
+rule for Private networks and `LocalSubnet`. The deployed PC needs no .NET runtime. The
+installer is not currently code-signed.
 
 `scripts/publish-ubuntu.ps1` builds `linux-x64` and `linux-arm64` self-contained archives.
 Each contains an interactive installer, uninstaller, quick-start guide, and hardened systemd
@@ -150,18 +156,22 @@ Decoder route poll interval: 3 seconds
 Encoder heartbeat interval: 10 seconds
 ```
 
-The preferred setup is **Diagnostics → Network Access**. It lists every active IPv4 adapter,
+Portable deployments can use **Diagnostics → Network Access**. It lists every active IPv4 adapter,
 allows the operator to select only the interfaces that should serve the UI, and requires an
 administrator password before any non-loopback interface can be saved. Selections and the
 PBKDF2-SHA256 password hash are stored in SQLite; plaintext passwords are never stored.
 Adapter IDs, rather than DHCP addresses, are persisted and resolved at the next startup.
 Changes require an application restart. Localhost always remains enabled.
 
-The legacy `Router:ListenOnAllInterfaces=true` configuration is still supported and requires
+The Windows installer can initialize all-interface LAN access with a password stored in an
+ACL-restricted file under `C:\ProgramData\VisionaryRouter`; its firewall rule is restricted
+to Private networks and the local subnet. The operator can later narrow application binding
+to selected adapters in Diagnostics. The legacy `Router:ListenOnAllInterfaces=true`
+configuration is still supported and requires
 `Router:AdminPassword`; the server throws at startup rather than serving an unauthenticated
 control surface to the LAN. The transport is still plain HTTP, so use this only on trusted
-networks. Windows Firewall must separately allow inbound TCP on port 8088; the application
-does not create or modify firewall rules.
+networks. The application itself does not create or modify firewall rules; that privileged
+work stays in the installer.
 
 The SQLite database is normally:
 
@@ -468,3 +478,28 @@ At the end of each meaningful work session:
 - That outage is also the argument for the outstanding control-NIC binding item: with Ethernet, Wi-Fi, Tailscale, IPVanish, WSL and two Hyper-V adapters present, the application depends on the OS choosing the right path, and the OS chose wrong.
 - `dotnet build VisionaryRouter.slnx --configuration Release` — 0 warnings, 0 errors.
 - `dotnet test VisionaryRouter.slnx --configuration Release` — 97 passed, 0 failed.
+
+### 2026-10-25 — guided Windows installer and service
+
+- Scanned the mounted TrueNAS programming share and found the clean NAS repository at
+  `Y:\Programming\Windows\VisionaryRouter`. Its `main`, the local checkout, and freshly
+  fetched `origin/main` all resolved to commit `2729806`; there was no newer copy to merge.
+- Added Windows Service hosting through `Microsoft.Extensions.Hosting.WindowsServices` while
+  preserving the existing double-click portable behavior.
+- Added an Inno Setup wizard that installs the self-contained application under Program
+  Files, configures an automatic-recovery Windows Service, asks for the Web UI port, and can
+  bootstrap password-protected LAN access.
+- Optional LAN access creates a TCP-only Windows Firewall rule scoped to the executable
+  (not a port, so a port changed later in Diagnostics keeps working), Windows Private
+  profiles, and `LocalSubnet`. Endpoint control remains
+  outbound UDP and does not receive a broad inbound exception.
+- The installer writes the initial password to a ProgramData file and restricts its ACL to
+  LocalSystem and local administrators. The password is never passed on a command line.
+- Added Start Menu and optional desktop Web UI shortcuts. Uninstall removes the service,
+  firewall rule, shortcuts, and application files, and explicitly asks before deleting the
+  durable SQLite data.
+- Extended `scripts/publish-windows.ps1` to create both the portable ZIP and
+  `VisionaryRouter-Setup-win-x64.exe`; `-SkipInstaller` remains available to build only the
+  portable package.
+- `dotnet test VisionaryRouter.slnx --configuration Release` — 97 passed, 0 failed, 0 skipped.
+- Inno Setup 6.7.3 compilation succeeded. The resulting installer is approximately 44 MB.
