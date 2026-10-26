@@ -8,7 +8,19 @@ using VisionaryRouter.Core.Routing;
 using VisionaryRouter.Server.Data;
 using VisionaryRouter.Server.Services;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    // A Windows service starts with System32 as its working directory, and shortcuts or
+    // automation may choose other directories. Static files and appsettings belong beside
+    // the executable, so never make their location depend on the caller's current directory.
+    ContentRootPath = AppContext.BaseDirectory
+});
+
+// The portable build still behaves like a normal desktop application. When the same
+// executable is launched by the Windows Service Control Manager, this switches lifetime,
+// shutdown and content-root handling to the Windows service conventions.
+builder.Host.UseWindowsService(options => options.ServiceName = "Visionary Router");
 
 // ---------------------------------------------------------------------------
 // Configuration
