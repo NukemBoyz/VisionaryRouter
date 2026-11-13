@@ -174,6 +174,7 @@ if (portAutomaticallySelected)
 
 app.UseMiddleware<BasicAuthenticationMiddleware>();
 
+if (!builder.Configuration.GetValue("Router:DesktopOnly", false)) {
 app.UseDefaultFiles();
 
 app.UseStaticFiles(new StaticFileOptions
@@ -185,6 +186,7 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = context => context.Context.Response.Headers.CacheControl = "no-cache"
 });
 
+}
 // ---------------------------------------------------------------------------
 // Device management
 // ---------------------------------------------------------------------------

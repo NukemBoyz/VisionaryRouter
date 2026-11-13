@@ -1,0 +1,14 @@
+VISIONARY ROUTER — DECK MODE
+
+Launch VisionaryRouter.Desktop.exe and click Deck mode.
+The deck is a separate resizable window. Drag its edges to fit your screen and use Button size to adjust the touch targets.
+1. Select one encoder.
+2. Select one or more decoders, or All decoders.
+3. Press Route. Results come from the existing route verification engine.
+Click a selected decoder again to deselect it. Clear selection resets the pending selection only; it does not change live hardware routes.
+The deck contains no HDMI 1, HDMI 2, or USB-C controls. It routes the encoder's current stream. Input switching remains in the main window.
+Large device lists use independent encoder and decoder pages, 12 buttons per page. Selections persist across pages. Main window and deck share selections.
+Closing the deck leaves the main application running. Closing the main application also closes the deck.
+
+Validation: desktop build/publish succeeded with no compiler errors. New automated checks cover deck selection, multiple destinations, route dispatch, busy/disconnected states, and absence of input controls. Execution of the checks was BLOCKED by Windows Application Control on this PC; the new deck has not been visually or hardware validated. This release is unsigned; the previously identified signing requirement remains unresolved.
+Data remains in the existing router database; no hardware routes were changed while developing this feature.

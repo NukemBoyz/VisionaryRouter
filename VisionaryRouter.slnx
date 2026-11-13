@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/VisionaryRouter.Core/VisionaryRouter.Core.csproj" />
+    <Project Path="src/VisionaryRouter.Desktop/VisionaryRouter.Desktop.csproj" />
     <Project Path="src/VisionaryRouter.Probe/VisionaryRouter.Probe.csproj" />
     <Project Path="src/VisionaryRouter.Server/VisionaryRouter.Server.csproj" />
     <Project Path="src/VisionaryRouter.Simulator/VisionaryRouter.Simulator.csproj" />

@@ -1,0 +1,27 @@
+RELEASE DISTRIBUTION
+====================
+
+Goal: Install from one Setup.exe, or extract the portable ZIP and launch the desktop app.
+No browser, separately installed .NET runtime, or administrator elevation is required.
+The installer creates Start Menu/Desktop shortcuts and an uninstaller. Saved configuration is preserved during uninstall and upgrades.
+
+The current installer and application are UNSIGNED. The installer is packaging, not a workaround for Smart App Control. Do not promise warning-free installation for this build.
+
+Recommended direct-download release process:
+1. Publish the project with a maintainer-selected OSI-approved license and third-party notices. No license was chosen on the maintainer's behalf.
+2. Apply to SignPath Foundation for open-source signing. Acceptance is reviewed; an existing release and project reputation are among the conditions.
+3. Build from reviewed source in CI. Sign the project-owned desktop and engine executables using the approved signing service.
+4. Compile the installer from those signed artifacts; configure signing for the installer AND its uninstaller using Inno Setup's SignTool and SignedUninstaller settings.
+5. Sign the portable project binaries before archiving. Verify Authenticode signatures and publish SHA256 checksums alongside releases.
+6. Test install, upgrade, uninstall, portable launch and Smart App Control on a clean Windows VM. A signature is not a guarantee of passing every security/reputation check.
+
+Alternative: package as MSIX and submit to Microsoft Store. Microsoft signs accepted MSIX packages. Store account setup and certification are still required; preparing a package alone does not make it Store-signed.
+
+Sources:
+https://signpath.org/terms
+https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options
+https://learn.microsoft.com/windows/apps/publish/faq/get-started-with-the-microsoft-store
+
+The desktop installer definition is packaging/windows/VisionaryRouter.Desktop.iss.
+Publish binaries with scripts/publish-desktop.ps1, then compile the definition with Inno Setup 6, passing SourceDir and OutputDir.
+This installer has a separate application identity from the older web/service installer. It does not uninstall or modify an old service installation.
